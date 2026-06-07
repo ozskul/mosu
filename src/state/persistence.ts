@@ -12,16 +12,27 @@ const STORE = "audio";
 const AUDIO_KEY = "current";
 
 export interface PersistedDoc {
-  beatmap: Beatmap;
+  /** All difficulties in the set. */
+  difficulties: Beatmap[];
+  /** Index of the difficulty that was being edited. */
+  activeIndex: number;
   audioFilename: string | null;
   savedAt: number;
+  /** Legacy single-difficulty field (older saves). */
+  beatmap?: Beatmap;
 }
 
 export function saveDocument(
-  beatmap: Beatmap,
+  difficulties: Beatmap[],
+  activeIndex: number,
   audioFilename: string | null,
 ): void {
-  const doc: PersistedDoc = { beatmap, audioFilename, savedAt: Date.now() };
+  const doc: PersistedDoc = {
+    difficulties,
+    activeIndex,
+    audioFilename,
+    savedAt: Date.now(),
+  };
   try {
     localStorage.setItem(DOC_KEY, JSON.stringify(doc));
   } catch {
@@ -33,7 +44,21 @@ export function loadDocument(): PersistedDoc | null {
   try {
     const raw = localStorage.getItem(DOC_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as PersistedDoc;
+    const doc = JSON.parse(raw) as PersistedDoc;
+    // Migrate older single-difficulty saves.
+    if (!doc.difficulties && doc.beatmap) {
+      return {
+        difficulties: [doc.beatmap],
+        activeIndex: 0,
+        audioFilename: doc.audioFilename ?? null,
+        savedAt: doc.savedAt ?? Date.now(),
+      };
+    }
+    if (!Array.isArray(doc.difficulties) || doc.difficulties.length === 0) {
+      return null;
+    }
+    doc.activeIndex = Math.max(0, Math.min(doc.activeIndex ?? 0, doc.difficulties.length - 1));
+    return doc;
   } catch {
     return null;
   }

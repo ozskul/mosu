@@ -207,6 +207,19 @@ h3 { margin: 6px 0 2px; font-size: 13px; color: var(--text); }
 .tp-row .jump { cursor: pointer; flex: 1; }
 .tp-row .jump:hover { color: var(--accent-2); }
 
+.diff-row {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 8px 10px; font-size: 12.5px;
+  cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  animation: slideUp 0.18s ease;
+}
+.diff-row:hover { border-color: #404a63; }
+.diff-row.active { border-color: var(--accent); background: rgba(255, 95, 162, 0.1); }
+.diff-row .name { flex: 1; font-weight: 600; }
+.diff-row .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+.diff-row .del { padding: 2px 7px; font-size: 11px; }
+
 .help { margin: 0; padding-left: 18px; color: var(--muted); }
 .help li { margin: 4px 0; }
 .help b { color: var(--text); }

@@ -65,6 +65,7 @@ export class ManiaPlayer {
   private dpr = 1;
   private raf: number | null = null;
   private phase: Phase = "countdown";
+  private paused = false;
 
   private states: NoteState[] = [];
   private keyMap = new Map<string, number>();
@@ -153,7 +154,12 @@ export class ManiaPlayer {
       this.retry();
       return;
     }
-    if (this.phase !== "playing") return;
+    if (e.code === "KeyP") {
+      e.preventDefault();
+      this.togglePause();
+      return;
+    }
+    if (this.phase !== "playing" || this.paused) return;
     const col = this.keyMap.get(e.code);
     if (col === undefined || e.repeat) return;
     e.preventDefault();
@@ -189,11 +195,18 @@ export class ManiaPlayer {
     }
   }
 
+  private togglePause(): void {
+    if (this.phase !== "playing") return;
+    this.paused = !this.paused;
+    if (this.paused) this.audio.pause();
+    else void this.audio.play();
+  }
+
   private onKeyUp(e: KeyboardEvent): void {
     const col = this.keyMap.get(e.code);
     if (col === undefined) return;
     this.heldColumns.delete(col);
-    if (this.phase !== "playing") return;
+    if (this.phase !== "playing" || this.paused) return;
     const t = this.audio.positionMs();
     for (const s of this.states) {
       if (s.holding && s.note.column === col) {
@@ -254,7 +267,7 @@ export class ManiaPlayer {
       }
       return;
     }
-    if (this.phase === "playing") {
+    if (this.phase === "playing" && !this.paused) {
       const t = this.audio.positionMs();
       // Miss notes that scrolled past the window.
       for (const s of this.states) {
@@ -279,8 +292,13 @@ export class ManiaPlayer {
   // ---- render -------------------------------------------------------------
 
   private loop = (): void => {
-    this.update();
-    this.draw();
+    // A single bad frame must never freeze test mode: catch, log, keep looping.
+    try {
+      this.update();
+      this.draw();
+    } catch (err) {
+      console.error("[mosu] test-play frame error (recovered):", err);
+    }
     this.raf = requestAnimationFrame(this.loop);
   };
 
@@ -321,6 +339,7 @@ export class ManiaPlayer {
 
     if (this.phase === "countdown") this.drawCountdown(ctx, W, receptorY);
     if (this.phase === "results") this.drawResults(ctx, W, H);
+    if (this.paused && this.phase === "playing") this.drawPaused(ctx, W, H);
 
     ctx.restore();
   }
@@ -478,7 +497,9 @@ export class ManiaPlayer {
   ): void {
     const now = performance.now();
     for (const x of this.explosions) {
-      const age = (now - x.born) / 260;
+      // Clamp to [0,1]: draw() runs slightly after update()'s expiry filter, so
+      // age can tip past 1 — and a negative radius below would throw and freeze.
+      const age = Math.min(1, Math.max(0, (now - x.born) / 260));
       const cx = x0 + x.column * laneW + laneW / 2;
       const r = laneW * (0.35 + age * 0.5);
       ctx.save();
@@ -554,7 +575,7 @@ export class ManiaPlayer {
     ctx.fillText(`${m.artist || "Unknown"} — ${m.title || "Untitled"}`, 24, 34);
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.font = "12px system-ui";
-    ctx.fillText(`[${m.version || ""}]  ·  Esc to exit  ·  R to retry`, 24, 54);
+    ctx.fillText(`[${m.version || ""}]  ·  P pause  ·  R retry  ·  Esc exit`, 24, 54);
 
     // Progress bar (top).
     const dur = this.audio.durationMs || this.lastNoteTime;
@@ -587,6 +608,22 @@ export class ManiaPlayer {
     ctx.fillText(label, 0, 0);
     ctx.restore();
     ctx.textBaseline = "alphabetic";
+  }
+
+  private drawPaused(ctx: CanvasRenderingContext2D, W: number, H: number): void {
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = "#05060a";
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 48px system-ui";
+    ctx.fillText("PAUSED", W / 2, H / 2 - 10);
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.font = "15px system-ui";
+    ctx.fillText("P resume  ·  R retry  ·  Esc exit", W / 2, H / 2 + 24);
+    ctx.textAlign = "left";
   }
 
   private drawResults(ctx: CanvasRenderingContext2D, W: number, H: number): void {
