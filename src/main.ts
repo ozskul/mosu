@@ -34,7 +34,13 @@ import {
   blankDifficultyFrom,
   duplicateDifficulty,
   emptySet,
+  nextVersionName,
 } from "./state/difficulties.ts";
+import {
+  generateChart,
+  DIFFICULTY_LEVELS,
+  type DifficultyLevel,
+} from "./generate/autochart.ts";
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -1062,6 +1068,109 @@ alignBtn.addEventListener("click", async () => {
     alignBtn.disabled = false;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Auto-map generator
+// ---------------------------------------------------------------------------
+const genDiffSel = $("#gen-diff") as HTMLSelectElement;
+const genDensity = $("#gen-density") as HTMLInputElement;
+const genDensityVal = $("#gen-density-val");
+const genLn = $("#gen-ln") as HTMLInputElement;
+const genStatus = $("#gen-status");
+
+const renderDensity = () => { genDensityVal.textContent = `${Number(genDensity.value).toFixed(2)}×`; };
+genDensity.addEventListener("input", renderDensity);
+renderDensity();
+
+function genSetStatus(msg: string): void {
+  genStatus.hidden = false;
+  genStatus.textContent = msg;
+}
+
+/** Ensure audio, detected beats, and a BPM timing point exist. */
+async function ensureGenPrereqs(): Promise<boolean> {
+  const buffer = audio.audioBuffer;
+  if (!buffer) { alert("Load audio first."); return false; }
+  if (onsets.length === 0) {
+    genSetStatus("Scanning for beats…");
+    onsets = detectOnsets(buffer);
+  }
+  if (onsets.length === 0) {
+    genSetStatus("Couldn't find clear beats in this audio.");
+    return false;
+  }
+  if (!store.beatmap.timingPoints.some((t) => t.uninherited)) {
+    genSetStatus("Detecting tempo…");
+    const r = await detectTempo(buffer);
+    const offset = alignOffsetToOnsets(onsets, r.bpm);
+    store.addTimingPoint({
+      time: offset, uninherited: true, bpm: r.bpm, sv: 1, meter: 4,
+      volume: 100, sampleSet: 0, sampleIndex: 0, effects: 0,
+    });
+  }
+  return true;
+}
+
+function uniqueVersion(base: string): string {
+  return nextVersionName(difficulties.map((d) => d.metadata.version), base);
+}
+
+function levelLabel(level: DifficultyLevel): string {
+  return level.charAt(0).toUpperCase() + level.slice(1);
+}
+
+function makeNotes(level: DifficultyLevel) {
+  return generateChart(onsets, store.beatmap.timingPoints, {
+    keyCount: store.keyCount,
+    level,
+    density: Number(genDensity.value),
+    longNotes: genLn.checked,
+    seed: (Math.random() * 0xffffffff) >>> 0,
+  });
+}
+
+async function generateInto(target: "current" | "new"): Promise<void> {
+  if (!(await ensureGenPrereqs())) return;
+  const level = genDiffSel.value as DifficultyLevel;
+  if (target === "current" && store.beatmap.hitObjects.length > 0) {
+    if (!confirm("Replace the notes in this difficulty with a generated chart?")) return;
+  }
+  const notes = makeNotes(level);
+  if (notes.length === 0) { genSetStatus("Generator produced no notes — try a higher density."); return; }
+  if (target === "new") {
+    addDifficulty(false);
+    store.updateMetadata({ version: uniqueVersion(levelLabel(level)) });
+  }
+  store.replaceNotes(notes);
+  genSetStatus(`Generated ${notes.length} notes (${levelLabel(level)}). Undo (Ctrl+Z) reverts it.`);
+}
+
+async function generateSpread(): Promise<void> {
+  if (!(await ensureGenPrereqs())) return;
+  if (store.dirty && store.beatmap.hitObjects.length > 0 &&
+      !confirm("Generate a full Easy→Insane spread? New difficulties will be added.")) return;
+  const levels: DifficultyLevel[] = DIFFICULTY_LEVELS.filter((l) => l !== "expert");
+  let total = 0;
+  for (let i = 0; i < levels.length; i++) {
+    const level = levels[i];
+    // Reuse the current difficulty if it's empty; otherwise add a new one.
+    if (i === 0 && store.beatmap.hitObjects.length === 0) {
+      store.updateMetadata({ version: uniqueVersion(levelLabel(level)) });
+    } else {
+      addDifficulty(false);
+      store.updateMetadata({ version: uniqueVersion(levelLabel(level)) });
+    }
+    const notes = makeNotes(level);
+    store.replaceNotes(notes);
+    total += notes.length;
+  }
+  renderDiffList();
+  genSetStatus(`Generated a ${levels.length}-difficulty spread (${total} notes total).`);
+}
+
+$("#btn-generate").addEventListener("click", () => void generateInto("current"));
+$("#btn-generate-new").addEventListener("click", () => void generateInto("new"));
+$("#btn-generate-spread").addEventListener("click", () => void generateSpread());
 
 // ---------------------------------------------------------------------------
 // Style / preferences
