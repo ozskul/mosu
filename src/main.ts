@@ -159,6 +159,20 @@ function drawOverview(): void {
       const x = (o.time / dur) * W;
       ctx.fillRect(x, H - 4, 1, 4);
     }
+    // Preview-point flag.
+    const prev = store.beatmap.general.previewTime;
+    if (prev >= 0 && prev <= dur) {
+      const x = (prev / dur) * W;
+      ctx.fillStyle = "#ff9800";
+      ctx.fillRect(x, 0, 2, H);
+      ctx.beginPath();
+      ctx.moveTo(x + 2, 0);
+      ctx.lineTo(x + 10, 4);
+      ctx.lineTo(x + 2, 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+
     // Playhead.
     const px = (currentTime() / dur) * W;
     ctx.strokeStyle = "#ffd54f";
@@ -644,6 +658,18 @@ bindInput("#diff-od", () => String(store.beatmap.difficulty.od), (v) => store.up
 
 keysSel.addEventListener("change", () => {
   store.updateDifficulty({ keyCount: parseInt(keysSel.value, 10) });
+});
+
+// Preview point ("where the song-select snippet starts") — set without typing.
+$("#btn-preview-set").addEventListener("click", () => {
+  store.updateGeneral({ previewTime: Math.round(currentTime()) });
+});
+$("#btn-preview-jump").addEventListener("click", () => {
+  const t = store.beatmap.general.previewTime;
+  if (t >= 0) audio.seek(t);
+});
+$("#btn-preview-clear").addEventListener("click", () => {
+  store.updateGeneral({ previewTime: -1 });
 });
 
 // Timing controls
