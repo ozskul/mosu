@@ -19,6 +19,8 @@ export interface RenderInput {
   divisor: number;
   /** Shape used to draw notes. */
   skin: NoteSkin;
+  /** Detected onset times (ms, sorted) to draw as alignment guides. */
+  onsets?: readonly number[] | null;
   /** Optional in-progress hold being dragged: column + start/end times. */
   pendingHold?: { column: number; startTime: number; endTime: number } | null;
   /** Optional column index currently hovered (for highlight). */
@@ -125,6 +127,43 @@ export class PlayfieldRenderer {
     }
     ctx.globalAlpha = 1;
 
+    // Detected onset guides (where the song actually "hits"), so notes and the
+    // beat grid can be lined up to the audio. Drawn in teal to stand apart from
+    // the snap grid.
+    if (input.onsets && input.onsets.length) {
+      const teal = "#17e0c4";
+      const start = lowerBound(input.onsets, t0);
+      for (let i = start; i < input.onsets.length; i++) {
+        const t = input.onsets[i];
+        if (t > t1) break;
+        const y = vp.timeToY(t, input.currentTime);
+        if (y < 0 || y > H) continue;
+        ctx.strokeStyle = teal;
+        ctx.globalAlpha = 0.15;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(W, y + 0.5);
+        ctx.stroke();
+        // Solid arrow markers in the gutters for clear alignment.
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = teal;
+        ctx.beginPath();
+        ctx.moveTo(0, y - 5);
+        ctx.lineTo(7, y);
+        ctx.lineTo(0, y + 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(W, y - 5);
+        ctx.lineTo(W - 7, y);
+        ctx.lineTo(W, y + 5);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // Judgement line.
     ctx.strokeStyle = "#ffd54f";
     ctx.lineWidth = 3;
@@ -208,6 +247,18 @@ export class PlayfieldRenderer {
       glow: selected ? 8 : 0,
     });
   }
+}
+
+/** First index in a sorted array whose value is >= target. */
+function lowerBound(arr: readonly number[], target: number): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 function shade(hex: string, amt: number): string {
