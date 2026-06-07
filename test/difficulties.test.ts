@@ -103,4 +103,15 @@ describe("osz multi-difficulty round-trip", () => {
     expect(read.backgroundFilename).toBe("cover.jpg");
     expect(Array.from(read.backgroundBytes!)).toEqual([9, 8, 7, 6]);
   });
+
+  it("bundles and recovers a background video", async () => {
+    const b = diff("Hard", 4, 4);
+    b.general.videoFilename = "bg.mp4";
+    const vid = new Uint8Array([4, 4, 2]);
+    const blob = buildOsz([b], new Uint8Array([1, 2]), { "bg.mp4": vid });
+    const read = readOsz(new Uint8Array(await blob.arrayBuffer()));
+    expect(read.videoFilename).toBe("bg.mp4");
+    expect(Array.from(read.videoBytes!)).toEqual([4, 4, 2]);
+    expect(read.beatmaps[0].general.videoFilename).toBe("bg.mp4");
+  });
 });

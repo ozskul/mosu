@@ -104,6 +104,14 @@ describe("generateChart", () => {
       expect(notes.every((o) => o.column >= 0 && o.column < k)).toBe(true);
     }
   });
+
+  it("keeps generated notes aligned to the song's grid (adaptive snap)", () => {
+    // Onsets sit on the 1/8 grid (250ms at 120 BPM); every kept note should land
+    // on a sub-beat (multiple of 125ms), proving rhythmic snapping.
+    const notes = gen("hard");
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes.every((o) => o.time % 125 === 0)).toBe(true);
+  });
 });
 
 describe("recommendedOD", () => {

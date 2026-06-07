@@ -29,8 +29,12 @@ export const DIFFICULTY_LEVELS: DifficultyLevel[] = [
 ];
 
 interface Preset {
-  /** Grid resolution onsets are quantised to (2 = 1/2 beat, 4 = 1/4 beat). */
-  snapDivisor: number;
+  /**
+   * Finest grid resolution onsets may snap to (4 = 1/4, 8 = 1/8, 16 = 1/16).
+   * Each onset snaps to whichever subdivision up to this it lines up with, so
+   * the chart matches the song's actual rhythm (8ths, 16ths, triplets).
+   */
+  maxDivisor: number;
   /** Minimum spacing between consecutive notes, in beats. */
   minGapBeats: number;
   /** Probability a note becomes a chord (multiple columns). */
@@ -44,11 +48,11 @@ interface Preset {
 }
 
 const PRESETS: Record<DifficultyLevel, Preset> = {
-  easy: { snapDivisor: 2, minGapBeats: 1.0, chordChance: 0.0, maxChord: 1, lnChance: 0.28, lnMinGapBeats: 1.0 },
-  normal: { snapDivisor: 2, minGapBeats: 0.5, chordChance: 0.06, maxChord: 2, lnChance: 0.24, lnMinGapBeats: 0.5 },
-  hard: { snapDivisor: 4, minGapBeats: 0.5, chordChance: 0.16, maxChord: 2, lnChance: 0.18, lnMinGapBeats: 0.5 },
-  insane: { snapDivisor: 4, minGapBeats: 0.25, chordChance: 0.28, maxChord: 3, lnChance: 0.13, lnMinGapBeats: 0.5 },
-  expert: { snapDivisor: 4, minGapBeats: 0.25, chordChance: 0.42, maxChord: 4, lnChance: 0.09, lnMinGapBeats: 0.5 },
+  easy: { maxDivisor: 4, minGapBeats: 1.0, chordChance: 0.0, maxChord: 1, lnChance: 0.28, lnMinGapBeats: 1.0 },
+  normal: { maxDivisor: 8, minGapBeats: 0.5, chordChance: 0.06, maxChord: 2, lnChance: 0.24, lnMinGapBeats: 0.5 },
+  hard: { maxDivisor: 16, minGapBeats: 0.33, chordChance: 0.16, maxChord: 2, lnChance: 0.18, lnMinGapBeats: 0.5 },
+  insane: { maxDivisor: 16, minGapBeats: 0.25, chordChance: 0.28, maxChord: 3, lnChance: 0.13, lnMinGapBeats: 0.5 },
+  expert: { maxDivisor: 16, minGapBeats: 0.18, chordChance: 0.42, maxChord: 4, lnChance: 0.09, lnMinGapBeats: 0.5 },
 };
 
 /** Recommended difficulty settings per generated level. */
@@ -115,11 +119,13 @@ export function generateChart(
   const rng = mulberry32((opts.seed ?? 1) >>> 0);
   if (onsets.length === 0) return [];
 
-  // 1. Quantise to the grid + dedupe.
+  // 1. Quantise each onset to its natural subdivision (8th/16th/triplet) and
+  //    dedupe, so the chart follows the song's real rhythm.
+  const divisors = [1, 2, 3, 4, 6, 8, 12, 16].filter((d) => d <= preset.maxDivisor);
   const snapped: number[] = [];
   let lastSnap = NaN;
   for (const t of [...onsets].sort((a, b) => a - b)) {
-    const s = Math.round(snapTime(timingPoints, t, preset.snapDivisor));
+    const s = Math.round(snapAdaptive(timingPoints, t, divisors));
     if (s !== lastSnap) {
       snapped.push(s);
       lastSnap = s;
@@ -216,6 +222,25 @@ class Pattern {
     }
     return w;
   }
+}
+
+/**
+ * Snap a time to whichever candidate subdivision it aligns with best, with a
+ * tiny penalty that favours coarser grids — so a note only snaps to 1/16 (or a
+ * triplet) when it's genuinely closer there than at 1/8.
+ */
+function snapAdaptive(points: TimingPoint[], t: number, divisors: number[]): number {
+  let best = t;
+  let bestErr = Infinity;
+  for (const d of divisors) {
+    const st = snapTime(points, t, d);
+    const err = Math.abs(st - t) + d * 0.15;
+    if (err < bestErr) {
+      bestErr = err;
+      best = st;
+    }
+  }
+  return best;
 }
 
 function weightedPick(weights: number[], rng: () => number): number {

@@ -13,6 +13,7 @@ import {
   stepTime,
   bpmFromTaps,
   activeBpmPoint,
+  beatLengthFromBpm,
   alignOffsetToOnsets,
 } from "./timing/timing.ts";
 import { serializeBeatmap } from "./osu/serializer.ts";
@@ -35,6 +36,9 @@ import {
   saveBackground,
   loadBackground,
   clearBackground,
+  saveVideo,
+  loadVideo,
+  clearVideo,
 } from "./state/persistence.ts";
 import { isHold, type Beatmap, type HitObject } from "./types.ts";
 import {
@@ -62,9 +66,14 @@ const settings = new SettingsStore();
 const vp = new Viewport(settings.get().scrollSpeed, 0);
 
 let audioBytes: Uint8Array | null = null;
-let bgBytes: Uint8Array | null = null;
-let bgImage: HTMLImageElement | null = null;
-let bgUrl: string | null = null;
+// Background media: a still image and/or a video. `bgMedia` is whichever is
+// drawn behind the playfield (video wins when present).
+let imgBytes: Uint8Array | null = null;
+let vidBytes: Uint8Array | null = null;
+let vidEl: HTMLVideoElement | null = null;
+let imgUrl: string | null = null;
+let vidUrl: string | null = null;
+let bgMedia: HTMLImageElement | HTMLVideoElement | null = null;
 let divisor = 4;
 let clipboard: HitObject[] = [];
 let metronomeOn = false;
@@ -88,6 +97,14 @@ let activeIndex = 0;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
+
+// Inline SVG icons for the toggling toolbar buttons.
+const ICON = {
+  play: '<svg class="ico" viewBox="0 0 16 16"><path d="M5 3.2 12.5 8 5 12.8z" fill="currentColor"/></svg>',
+  pause: '<svg class="ico" viewBox="0 0 16 16"><rect x="4" y="3.2" width="3" height="9.6" rx="1" fill="currentColor"/><rect x="9" y="3.2" width="3" height="9.6" rx="1" fill="currentColor"/></svg>',
+  volOn: '<svg class="ico" viewBox="0 0 16 16"><path d="M3 6h2.5L9 3v10L5.5 10H3z" fill="currentColor"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.7 4a6 6 0 0 1 0 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  volOff: '<svg class="ico" viewBox="0 0 16 16"><path d="M3 6h2.5L9 3v10L5.5 10H3z" fill="currentColor"/><path d="M11 6l4 4M15 6l-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+};
 
 const canvas = $("#playfield") as HTMLCanvasElement;
 const overview = $("#overview") as HTMLCanvasElement;
@@ -127,6 +144,7 @@ function currentTime(): number {
 }
 
 function frame(): void {
+  syncVideo();
   // While the immersive player is up it owns the screen; skip editor rendering
   // but keep the loop alive so the editor resumes cleanly on exit.
   if (player) {
@@ -147,8 +165,8 @@ function frame(): void {
         selection: store.selection,
         currentTime: currentTime(),
         divisor,
-        skin: settings.get().noteSkin,
-        background: bgImage,
+        skin: "bar", // the editor always uses bars; the skin setting is test-only
+        background: bgMedia,
         onsets: showOnsets ? onsets : null,
         pendingHold: pending?.kind === "hold" ? {
           column: pending.column,
@@ -255,11 +273,24 @@ function drawOverview(): void {
   ctx.restore();
 }
 
+let overviewScrubbing = false;
+function overviewSeek(clientX: number): void {
+  const rect = overview.getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  audio.seek(frac * audio.durationMs);
+}
 overview.addEventListener("pointerdown", (e) => {
   if (!audio.isLoaded) return;
-  const rect = overview.getBoundingClientRect();
-  const frac = (e.clientX - rect.left) / rect.width;
-  audio.seek(frac * audio.durationMs);
+  overviewScrubbing = true;
+  overview.setPointerCapture(e.pointerId);
+  overviewSeek(e.clientX);
+});
+overview.addEventListener("pointermove", (e) => {
+  if (overviewScrubbing) overviewSeek(e.clientX);
+});
+overview.addEventListener("pointerup", (e) => {
+  overviewScrubbing = false;
+  try { overview.releasePointerCapture(e.pointerId); } catch { /* noop */ }
 });
 
 // ---------------------------------------------------------------------------
@@ -270,7 +301,7 @@ type Pending =
   | { kind: "hold"; column: number; startTime: number; currentTime: number; startY: number }
   | { kind: "move"; lastTime: number; lastColumn: number; moved: boolean }
   | { kind: "resize"; id: number; end: "head" | "tail"; last: number }
-  | { kind: "box"; x0: number; y0: number; x1: number; y1: number };
+  | { kind: "box"; x0: number; y0: number; x1: number; y1: number; base: number[] };
 
 let pending: Pending | null = null;
 let hoverColumn: number | null = null;
@@ -376,17 +407,25 @@ canvas.addEventListener("pointerdown", (e) => {
   const rect = canvas.getBoundingClientRect();
   const cell = pointerToCell(e);
   const hit = noteAtPointer(e);
+  const additive = e.ctrlKey || e.metaKey;
+
+  // Ctrl/Cmd + click a note toggles it in/out of the selection.
+  if (hit && additive) {
+    store.toggleSelect(hit.id!);
+    return;
+  }
 
   if (e.shiftKey) {
-    // Box select.
+    // Box select — additive with Ctrl/Cmd held, otherwise replaces.
     pending = {
       kind: "box",
       x0: e.clientX - rect.left,
       y0: e.clientY - rect.top,
       x1: e.clientX - rect.left,
       y1: e.clientY - rect.top,
+      base: additive ? [...store.selection] : [],
     };
-    store.clearSelection();
+    if (!additive) store.clearSelection();
     return;
   }
 
@@ -447,7 +486,7 @@ function applyBoxSelection(box: Extract<Pending, { kind: "box" }>): void {
   const xMax = Math.max(box.x0, box.x1);
   const yMin = Math.min(box.y0, box.y1);
   const yMax = Math.max(box.y0, box.y1);
-  const ids: number[] = [];
+  const ids = new Set<number>(box.base);
   for (const o of store.beatmap.hitObjects) {
     const cx = o.column * lw + lw / 2;
     if (cx < xMin || cx > xMax) continue;
@@ -455,7 +494,7 @@ function applyBoxSelection(box: Extract<Pending, { kind: "box" }>): void {
     const yTail = isHold(o) ? vp.timeToY(o.endTime!, t) : yHead;
     const top = Math.min(yHead, yTail);
     const bottom = Math.max(yHead, yTail);
-    if (bottom >= yMin && top <= yMax) ids.push(o.id!);
+    if (bottom >= yMin && top <= yMax) ids.add(o.id!);
   }
   store.setSelection(ids);
 }
@@ -499,8 +538,39 @@ window.addEventListener("keydown", (e) => {
     store.setSelection(store.beatmap.hitObjects.map((o) => o.id!));
     return;
   }
+  if (ctrl && e.code === "KeyD") {
+    // Duplicate the selection one beat later.
+    e.preventDefault();
+    const sel = store.selectedObjects();
+    if (sel.length) {
+      const base = Math.min(...sel.map((o) => o.time));
+      const beat = beatLengthFromBpm(activeBpmPoint(store.beatmap.timingPoints, base).bpm);
+      store.paste(store.copySelection(), base + beat);
+    }
+    return;
+  }
+  // Alt + arrows nudge the selection (time / column).
+  if (e.altKey && store.selection.size > 0 && /^Arrow(Up|Down|Left|Right)$/.test(e.code)) {
+    e.preventDefault();
+    const sel = store.selectedObjects();
+    const base = Math.min(...sel.map((o) => o.time));
+    const step = beatLengthFromBpm(activeBpmPoint(store.beatmap.timingPoints, base).bpm) / divisor;
+    if (e.code === "ArrowUp") store.moveSelection(step, 0);
+    else if (e.code === "ArrowDown") store.moveSelection(-step, 0);
+    else if (e.code === "ArrowRight") store.moveSelection(0, 1);
+    else if (e.code === "ArrowLeft") store.moveSelection(0, -1);
+    return;
+  }
 
   switch (e.code) {
+    case "Home":
+      e.preventDefault();
+      audio.seek(0);
+      break;
+    case "End":
+      e.preventDefault();
+      audio.seek(songLength());
+      break;
     case "Space":
       e.preventDefault();
       audio.toggle();
@@ -559,9 +629,7 @@ $("#btn-test").addEventListener("click", () => (player ? exitTestPlay() : startT
 $("#btn-new").addEventListener("click", () => {
   if (store.dirty && !confirm("Discard unsaved changes and start a new beatmap?")) return;
   loadSet(emptySet(4), 0);
-  bgBytes = null;
-  refreshBgImage();
-  void clearBackground();
+  removeBackgroundMedia();
   mapStartMs = null;
   updateStartLabel();
   keysSel.value = "4";
@@ -621,8 +689,12 @@ async function handleFile(file: File): Promise<void> {
         resetOnsets();
         ensureIntensity();
       }
+      removeBackgroundMedia();
       if (contents.backgroundBytes && contents.backgroundFilename) {
-        setBackground(contents.backgroundBytes, contents.backgroundFilename);
+        setImage(contents.backgroundBytes, contents.backgroundFilename);
+      }
+      if (contents.videoBytes && contents.videoFilename) {
+        setVideo(contents.videoBytes, contents.videoFilename);
       }
       onLoaded();
     } else if (name.endsWith(".osu")) {
@@ -633,8 +705,12 @@ async function handleFile(file: File): Promise<void> {
       onLoaded();
     } else if (isImageFile(file)) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      setBackground(bytes, file.name);
+      setImage(bytes, file.name);
       onLoaded(); // keep the drop overlay from lingering over the canvas
+    } else if (isVideoFile(file)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      setVideo(bytes, file.name);
+      onLoaded();
     } else {
       // Treat as audio.
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -715,7 +791,9 @@ function downloadOsz(): void {
   if (!passesExportCheck(maps)) return;
   const extra: Record<string, Uint8Array> = {};
   const bgName = maps[0].general.backgroundFilename;
-  if (bgName && bgBytes) extra[bgName] = bgBytes;
+  if (bgName && imgBytes) extra[bgName] = imgBytes;
+  const vidName = maps[0].general.videoFilename;
+  if (vidName && vidBytes) extra[vidName] = vidBytes;
   const blob = buildOsz(maps, audioForZip, extra);
   const fname = trim ? oszFileName(maps[0]).replace(/\.osz$/i, " (from start).osz") : oszFileName(maps[0]);
   triggerDownload(blob, fname);
@@ -727,45 +805,89 @@ function sanitizeName(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Background / cover image
+// Background media (cover image + optional video)
 // ---------------------------------------------------------------------------
-function setBackground(bytes: Uint8Array, filename: string): void {
-  bgBytes = bytes;
+function setImage(bytes: Uint8Array, filename: string): void {
+  imgBytes = bytes;
   store.updateGeneral({ backgroundFilename: filename });
   void saveBackground(bytes);
-  refreshBgImage();
+  refreshMedia();
 }
 
-function removeBackground(): void {
-  bgBytes = null;
-  store.updateGeneral({ backgroundFilename: undefined });
+function setVideo(bytes: Uint8Array, filename: string): void {
+  vidBytes = bytes;
+  store.updateGeneral({ videoFilename: filename });
+  void saveVideo(bytes);
+  refreshMedia();
+}
+
+function removeBackgroundMedia(): void {
+  imgBytes = null;
+  vidBytes = null;
+  store.updateGeneral({ backgroundFilename: undefined, videoFilename: undefined });
   void clearBackground();
-  refreshBgImage();
+  void clearVideo();
+  refreshMedia();
 }
 
-/** Rebuild the object URL + Image element + thumbnail from current bg bytes. */
-function refreshBgImage(): void {
-  if (bgUrl) {
-    URL.revokeObjectURL(bgUrl);
-    bgUrl = null;
-  }
+/** Rebuild media elements/URLs + thumbnail from the current image/video bytes. */
+function refreshMedia(): void {
+  if (imgUrl) { URL.revokeObjectURL(imgUrl); imgUrl = null; }
+  if (vidUrl) { URL.revokeObjectURL(vidUrl); vidUrl = null; }
+  vidEl = null;
+  bgMedia = null;
+
   const thumb = $("#bg-thumb") as HTMLImageElement;
   const removeBtn = $("#btn-bg-remove") as HTMLButtonElement;
-  if (bgBytes) {
-    const blob = new Blob([bgBytes.slice()]);
-    bgUrl = URL.createObjectURL(blob);
+
+  if (imgBytes) {
+    imgUrl = URL.createObjectURL(new Blob([imgBytes.slice()]));
     const img = new Image();
-    img.onload = () => { bgImage = img; };
-    img.src = bgUrl;
-    thumb.src = bgUrl;
+    img.onload = () => { if (!vidBytes) bgMedia = img; };
+    img.src = imgUrl;
+    thumb.src = imgUrl;
     thumb.hidden = false;
-    removeBtn.hidden = false;
   } else {
-    bgImage = null;
     thumb.removeAttribute("src");
     thumb.hidden = true;
-    removeBtn.hidden = true;
   }
+
+  if (vidBytes) {
+    vidUrl = URL.createObjectURL(new Blob([vidBytes.slice()]));
+    const v = document.createElement("video");
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    v.src = vidUrl;
+    v.addEventListener("loadeddata", () => { vidEl = v; bgMedia = v; });
+    vidEl = v;
+    bgMedia = v;
+  }
+
+  $("#bg-video-label").hidden = !vidBytes;
+  removeBtn.hidden = !(imgBytes || vidBytes);
+}
+
+/** Keep the background video roughly in sync with audio playback. */
+function syncVideo(): void {
+  if (bgMedia !== vidEl || !vidEl || !vidEl.duration) return;
+  const pos = currentTime() / 1000;
+  if (audio.isPlaying && !player) {
+    if (vidEl.paused) void vidEl.play().catch(() => {});
+    if (Math.abs(vidEl.currentTime - pos) > 0.3) vidEl.currentTime = Math.min(pos, vidEl.duration);
+  } else if (player) {
+    // Test mode drives its own clock; keep the video tracking audio.
+    if (vidEl.paused && audio.isPlaying) void vidEl.play().catch(() => {});
+    if (!audio.isPlaying && !vidEl.paused) vidEl.pause();
+    if (Math.abs(vidEl.currentTime - pos) > 0.3) vidEl.currentTime = Math.min(pos, vidEl.duration);
+  } else {
+    if (!vidEl.paused) vidEl.pause();
+    vidEl.currentTime = Math.min(pos, vidEl.duration);
+  }
+}
+
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(file.name);
 }
 
 function isImageFile(file: File): boolean {
@@ -800,10 +922,10 @@ function startTestPlay(): void {
     settings.get(),
     exitTestPlay,
     testStartMs,
-    bgImage,
+    bgMedia,
   );
   player.start();
-  $("#btn-test").textContent = "■ Stop";
+  $("#btn-test").textContent = "Stop";
   $("#btn-test").classList.add("playing");
 }
 
@@ -884,8 +1006,10 @@ function renderDiffList(): void {
     row.innerHTML =
       `<span class="name">${escapeHtml(d.metadata.version || "(unnamed)")}</span>` +
       `<span class="meta">${keys}K · ${notes}</span>` +
-      `<button class="rename" title="Rename difficulty">✎</button>` +
-      `<button class="del" title="Delete difficulty">✕</button>`;
+      `<button class="rename icon-btn" title="Rename difficulty" aria-label="Rename">` +
+        `<svg class="ico" viewBox="0 0 16 16"><path d="M10.5 2.5l3 3L6 13l-3.5.5L3 10z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>` +
+      `<button class="del icon-btn" title="Delete difficulty" aria-label="Delete">` +
+        `<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`;
     const nameEl = row.querySelector(".name") as HTMLElement;
     nameEl.addEventListener("click", () => switchDifficulty(i));
     row.querySelector(".meta")!.addEventListener("click", () => switchDifficulty(i));
@@ -1021,17 +1145,21 @@ $("#btn-preview-clear").addEventListener("click", () => {
   store.updateGeneral({ previewTime: -1 });
 });
 
-// Background / cover image picker.
+// Background image + video pickers.
 const bgInput = $("#bg-input") as HTMLInputElement;
+const vidInput = $("#vid-input") as HTMLInputElement;
 $("#btn-bg-pick").addEventListener("click", () => bgInput.click());
-$("#btn-bg-remove").addEventListener("click", () => removeBackground());
+$("#btn-vid-pick").addEventListener("click", () => vidInput.click());
+$("#btn-bg-remove").addEventListener("click", () => removeBackgroundMedia());
 bgInput.addEventListener("change", async () => {
   const f = bgInput.files?.[0];
-  if (f) {
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    setBackground(bytes, f.name);
-  }
+  if (f) setImage(new Uint8Array(await f.arrayBuffer()), f.name);
   bgInput.value = "";
+});
+vidInput.addEventListener("change", async () => {
+  const f = vidInput.files?.[0];
+  if (f) setVideo(new Uint8Array(await f.arrayBuffer()), f.name);
+  vidInput.value = "";
 });
 
 // Timing controls
@@ -1377,10 +1505,11 @@ bindVolume("#pref-music", "#val-music", "musicVolume", (v) => {
 
 // Mute toggle (toolbar).
 const muteBtn = $("#btn-mute") as HTMLButtonElement;
+muteBtn.innerHTML = ICON.volOn;
 muteBtn.addEventListener("click", () => {
   muted = !muted;
   audio.setVolume(muted ? 0 : settings.get().musicVolume);
-  muteBtn.textContent = muted ? "🔇" : "🔊";
+  muteBtn.innerHTML = muted ? ICON.volOff : ICON.volOn;
   muteBtn.classList.toggle("danger", muted);
 });
 bindVolume("#pref-hitsound", "#val-hitsound", "hitsoundVolume");
@@ -1418,6 +1547,10 @@ function syncPanels(): void {
   ($("#btn-undo") as HTMLButtonElement).disabled = !store.canUndo;
   ($("#btn-redo") as HTMLButtonElement).disabled = !store.canRedo;
   $("#dirty-flag").hidden = !store.dirty;
+  const selCount = store.selection.size;
+  const selEl = $("#sel-count");
+  selEl.hidden = selCount === 0;
+  selEl.textContent = `${selCount} selected`;
 
   renderTimingList();
   renderDiffList();
@@ -1482,8 +1615,9 @@ scrollRange.addEventListener("input", () => {
   settings.set("scrollSpeed", v);
 });
 // The play/pause icon tracks the engine, which emits ticks on every state change.
+$("#btn-play").innerHTML = ICON.play;
 audio.onTick(() => {
-  $("#btn-play").textContent = audio.isPlaying ? "⏸" : "▶";
+  $("#btn-play").innerHTML = audio.isPlaying ? ICON.pause : ICON.play;
 });
 
 // ---------------------------------------------------------------------------
@@ -1522,10 +1656,10 @@ async function restore(): Promise<void> {
       } catch { /* corrupt audio cache */ }
     }
     const bg = await loadBackground();
-    if (bg && store.beatmap.general.backgroundFilename) {
-      bgBytes = bg;
-      refreshBgImage();
-    }
+    if (bg && store.beatmap.general.backgroundFilename) imgBytes = bg;
+    const vid = await loadVideo();
+    if (vid && store.beatmap.general.videoFilename) vidBytes = vid;
+    if (imgBytes || vidBytes) refreshMedia();
   }
   syncPanels();
 }

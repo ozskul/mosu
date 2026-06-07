@@ -11,6 +11,7 @@ const DB_NAME = "mosu";
 const STORE = "audio";
 const AUDIO_KEY = "current";
 const BG_KEY = "background";
+const VIDEO_KEY = "video";
 
 export interface PersistedDoc {
   /** All difficulties in the set. */
@@ -128,6 +129,8 @@ export const saveAudio = (bytes: Uint8Array) => putBlob(AUDIO_KEY, bytes);
 export const loadAudio = () => getBlob(AUDIO_KEY);
 export const saveBackground = (bytes: Uint8Array) => putBlob(BG_KEY, bytes);
 export const loadBackground = () => getBlob(BG_KEY);
+export const saveVideo = (bytes: Uint8Array) => putBlob(VIDEO_KEY, bytes);
+export const loadVideo = () => getBlob(VIDEO_KEY);
 
 async function deleteBlob(key: string): Promise<void> {
   try {
@@ -146,3 +149,4 @@ async function deleteBlob(key: string): Promise<void> {
 
 export const clearAudio = () => deleteBlob(AUDIO_KEY);
 export const clearBackground = () => deleteBlob(BG_KEY);
+export const clearVideo = () => deleteBlob(VIDEO_KEY);
