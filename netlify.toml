@@ -1,0 +1,16 @@
+# Netlify build configuration for mosu!
+# The site is served from the domain root, so the default Vite base ("/") is
+# correct here — do NOT set MOSU_BASE (that is only for GitHub Pages project URLs).
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single-page app: serve index.html for any path so deep links don't 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
