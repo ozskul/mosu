@@ -26,7 +26,7 @@
         </div>
         <div class="tb-group">
           <button id="btn-play" title="Play / Pause (Space)">▶</button>
-          <button id="btn-test" title="Test play" class="accent">Test</button>
+          <button id="btn-test" title="Test play (immersive)" class="accent">▶ Test</button>
         </div>
         <div class="tb-group">
           <label>Snap
@@ -63,8 +63,6 @@
             </div>
           </div>
           <canvas id="playfield"></canvas>
-          <div id="judgement" class="judgement" hidden></div>
-          <div id="play-overlay" class="play-overlay" hidden></div>
         </section>
 
         <!-- Side panel -->
@@ -73,6 +71,7 @@
             <button data-tab="meta" class="active">Song</button>
             <button data-tab="timing">Timing</button>
             <button data-tab="diff">Setup</button>
+            <button data-tab="prefs">Style</button>
             <button data-tab="help">Help</button>
           </nav>
 
@@ -95,6 +94,11 @@
 
             <!-- Timing -->
             <div class="tab" data-tab="timing" hidden>
+              <button id="btn-detect" class="full accent" title="Analyse the audio for BPM and offset">
+                ✨ Auto-detect tempo
+              </button>
+              <p id="detect-status" class="muted" hidden></p>
+              <hr />
               <div class="field-row">
                 <label>BPM<input id="t-bpm" type="number" step="0.001" value="120" /></label>
                 <button id="btn-tap" title="Tap to the beat">Tap</button>
@@ -129,6 +133,33 @@
               <button id="btn-clear" class="danger full">Clear all notes</button>
             </div>
 
+            <!-- Style / preferences -->
+            <div class="tab" data-tab="prefs" hidden>
+              <label>Note shape
+                <select id="pref-skin">
+                  <option value="bar">Bars</option>
+                  <option value="circle">Circles</option>
+                  <option value="diamond">Diamonds</option>
+                  <option value="arrow">Arrows</option>
+                </select>
+              </label>
+              <hr />
+              <label>Music volume <span class="val" id="val-music"></span>
+                <input id="pref-music" type="range" min="0" max="1" step="0.01" />
+              </label>
+              <label>Hitsound volume <span class="val" id="val-hitsound"></span>
+                <input id="pref-hitsound" type="range" min="0" max="1" step="0.01" />
+              </label>
+              <label>Metronome volume <span class="val" id="val-metronome"></span>
+                <input id="pref-metronome" type="range" min="0" max="1" step="0.01" />
+              </label>
+              <label class="checkbox"><input id="pref-hitsounds" type="checkbox" /> Play hitsounds in test mode</label>
+              <hr />
+              <label>Test-play scroll speed <span class="val" id="val-playscroll"></span>
+                <input id="pref-playscroll" type="range" min="0.3" max="1.6" step="0.05" />
+              </label>
+            </div>
+
             <!-- Help -->
             <div class="tab" data-tab="help" hidden>
               <h3>Editing</h3>
@@ -146,6 +177,12 @@
                 <li><b>Ctrl+Z / Ctrl+Y</b> undo / redo</li>
                 <li><b>1–9</b> place a note in that column at the playhead</li>
               </ul>
+              <h3>Test play</h3>
+              <ul class="help">
+                <li><b>▶ Test</b> launches immersive play from the playhead</li>
+                <li>Default keys auto-map per column (e.g. 4K = D F J K)</li>
+                <li><b>R</b> retry · <b>Esc</b> back to the editor</li>
+              </ul>
               <p class="muted">mosu! is free &amp; open source (MIT).</p>
             </div>
           </div>
@@ -157,6 +194,11 @@
         <div class="time-label"><span id="time-cur">0:00.000</span> / <span id="time-tot">0:00.000</span></div>
         <canvas id="overview"></canvas>
       </footer>
+    </div>
+
+    <!-- Immersive test-play overlay (covers the whole app) -->
+    <div id="play-stage" class="play-stage" hidden>
+      <canvas id="play-canvas"></canvas>
     </div>
 
     <input id="file-input" type="file" accept=".osu,.osz,audio/*,.mp3,.ogg,.wav" hidden />

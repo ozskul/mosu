@@ -3,7 +3,9 @@ import { AudioEngine } from "./audio/AudioEngine.ts";
 import { EditorStore } from "./state/EditorStore.ts";
 import { PlayfieldRenderer } from "./render/PlayfieldRenderer.ts";
 import { Viewport } from "./render/Viewport.ts";
-import { TestPlay } from "./play/TestPlay.ts";
+import { ManiaPlayer } from "./play/ManiaPlayer.ts";
+import { SettingsStore } from "./state/settings.ts";
+import { detectTempo } from "./audio/tempo.ts";
 import {
   SNAP_DIVISORS,
   snapTime,
@@ -27,14 +29,16 @@ import { createEmptyBeatmap, isHold, type HitObject } from "./types.ts";
 // ---------------------------------------------------------------------------
 const store = new EditorStore();
 const audio = new AudioEngine();
-const vp = new Viewport(0.45, 0);
+const settings = new SettingsStore();
+const vp = new Viewport(settings.get().scrollSpeed, 0);
 
 let audioBytes: Uint8Array | null = null;
 let divisor = 4;
 let clipboard: HitObject[] = [];
 let metronomeOn = false;
 let lastMetronomeBeat = -1;
-let testPlay: TestPlay | null = null;
+let player: ManiaPlayer | null = null;
+let testStartMs = 0;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -77,11 +81,16 @@ function currentTime(): number {
 }
 
 function frame(): void {
+  // While the immersive player is up it owns the screen; skip editor rendering
+  // but keep the loop alive so the editor resumes cleanly on exit.
+  if (player) {
+    requestAnimationFrame(frame);
+    return;
+  }
   renderer.resize();
   const H = renderer.cssHeight;
   vp.judgeY = H - 90;
 
-  if (testPlay && audio.isPlaying) testPlay.update();
   handleMetronome();
 
   renderer.render(
@@ -90,39 +99,19 @@ function frame(): void {
       selection: store.selection,
       currentTime: currentTime(),
       divisor,
+      skin: settings.get().noteSkin,
       pendingHold: pending?.kind === "hold" ? {
         column: pending.column,
         startTime: pending.startTime,
         endTime: pending.currentTime,
       } : null,
       hoverColumn,
-      playMode: !!testPlay,
+      playMode: false,
     },
     vp,
   );
   drawOverview();
-  drawColumnHints();
   requestAnimationFrame(frame);
-}
-
-// ---------------------------------------------------------------------------
-// Column key hints (drawn as DOM-free canvas text over the judgement line)
-// ---------------------------------------------------------------------------
-function drawColumnHints(): void {
-  if (!testPlay) return;
-  const ctx = canvas.getContext("2d")!;
-  const W = renderer.cssWidth;
-  const keys = store.keyCount;
-  const lw = W / keys;
-  ctx.save();
-  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-  ctx.font = "bold 14px system-ui";
-  ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
-  for (let c = 0; c < keys; c++) {
-    ctx.fillText(testPlay.keyLabel(c), c * lw + lw / 2, vp.judgeY + 28);
-  }
-  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +205,9 @@ function noteAtPointer(e: PointerEvent): HitObject | null {
   const y = e.clientY - rect.top;
   const column = renderer.columnAtX(x, rect.width, store.keyCount);
   const t = currentTime();
-  const noteH = 18;
+  // Match the renderer's note height, plus a little grab tolerance.
+  const lw = rect.width / store.keyCount;
+  const noteH = Math.max(8, Math.min(18, lw * 0.28)) + 4;
   let hit: HitObject | null = null;
   for (const o of store.beatmap.hitObjects) {
     if (o.column !== column) continue;
@@ -263,7 +254,7 @@ canvas.addEventListener("pointermove", (e) => {
 });
 
 canvas.addEventListener("pointerdown", (e) => {
-  if (testPlay || !audio.isLoaded) return;
+  if (player || !audio.isLoaded) return;
   canvas.setPointerCapture(e.pointerId);
   const rect = canvas.getBoundingClientRect();
   const cell = pointerToCell(e);
@@ -349,10 +340,7 @@ canvas.addEventListener(
 // Keyboard shortcuts
 // ---------------------------------------------------------------------------
 window.addEventListener("keydown", (e) => {
-  if (testPlay) {
-    if (e.code === "Escape") stopTestPlay();
-    return; // test play handles its own keys
-  }
+  if (player) return; // the immersive player handles its own keys (Esc, R, lanes)
   const target = e.target as HTMLElement;
   if (target && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA")) {
     return; // don't hijack form typing
@@ -414,27 +402,7 @@ function handleMetronome(): void {
   const beatIndex = Math.floor((t - bpm.time) / beatLen);
   if (beatIndex !== lastMetronomeBeat && beatIndex >= 0) {
     lastMetronomeBeat = beatIndex;
-    tick(beatIndex % bpm.meter === 0);
-  }
-}
-
-function tick(accent: boolean): void {
-  // A short oscillator click. Uses a throwaway context so it never interferes
-  // with the main playback graph.
-  try {
-    const ac = new AudioContext();
-    const osc = ac.createOscillator();
-    const g = ac.createGain();
-    osc.frequency.value = accent ? 1500 : 1000;
-    g.gain.value = 0.15;
-    osc.connect(g);
-    g.connect(ac.destination);
-    osc.start();
-    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.05);
-    osc.stop(ac.currentTime + 0.06);
-    osc.onended = () => ac.close();
-  } catch {
-    /* ignore */
+    audio.playClick(beatIndex % bpm.meter === 0, settings.get().metronomeVolume);
   }
 }
 
@@ -444,7 +412,7 @@ function tick(accent: boolean): void {
 $("#btn-play").addEventListener("click", () => audio.toggle());
 $("#btn-undo").addEventListener("click", () => store.undo());
 $("#btn-redo").addEventListener("click", () => store.redo());
-$("#btn-test").addEventListener("click", () => (testPlay ? stopTestPlay() : startTestPlay()));
+$("#btn-test").addEventListener("click", () => (player ? exitTestPlay() : startTestPlay()));
 $("#btn-new").addEventListener("click", () => {
   if (store.dirty && !confirm("Discard unsaved changes and start a new beatmap?")) return;
   store.loadBeatmap(createEmptyBeatmap(4));
@@ -551,37 +519,37 @@ function triggerDownload(blob: Blob, filename: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Test play
+// Immersive test play (osu!mania-style)
 // ---------------------------------------------------------------------------
 function startTestPlay(): void {
   if (!audio.isLoaded) { alert("Load audio first."); return; }
+  if (store.beatmap.hitObjects.length === 0) { alert("Place some notes first."); return; }
   store.clearSelection();
-  testPlay = new TestPlay(store.beatmap, audio, updatePlayOverlay);
-  testPlay.start();
-  audio.seek(Math.max(0, currentTime() - 1500));
-  void audio.play();
-  $("#btn-test").textContent = "Stop";
-  $("#play-overlay").hidden = false;
-  updatePlayOverlay();
-}
-
-function stopTestPlay(): void {
-  if (!testPlay) return;
-  testPlay.stop();
-  testPlay = null;
   audio.pause();
-  $("#btn-test").textContent = "Test";
-  $("#play-overlay").hidden = true;
+  testStartMs = currentTime();
+  const playCanvas = $("#play-canvas") as HTMLCanvasElement;
+  $("#play-stage").hidden = false;
+  player = new ManiaPlayer(
+    playCanvas,
+    store.beatmap,
+    audio,
+    settings.get(),
+    exitTestPlay,
+    testStartMs,
+  );
+  player.start();
+  $("#btn-test").textContent = "■ Stop";
+  $("#btn-test").classList.add("playing");
 }
 
-function updatePlayOverlay(): void {
-  if (!testPlay) return;
-  const s = testPlay.stats;
-  $("#play-overlay").innerHTML =
-    `<div class="combo">${s.combo}x</div>` +
-    `<div class="row"><span>PERF ${s.perfect}</span><span>GR ${s.great}</span>` +
-    `<span>GD ${s.good}</span><span>MISS ${s.miss}</span></div>` +
-    `<div class="row">max ${s.maxCombo}</div>`;
+function exitTestPlay(): void {
+  if (!player) return;
+  player.stop();
+  player = null;
+  $("#play-stage").hidden = true;
+  $("#btn-test").textContent = "▶ Test";
+  $("#btn-test").classList.remove("playing");
+  audio.seek(testStartMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +645,73 @@ $("#btn-tap").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Auto tempo detection
+// ---------------------------------------------------------------------------
+const detectBtn = $("#btn-detect") as HTMLButtonElement;
+const detectStatus = $("#detect-status");
+detectBtn.addEventListener("click", async () => {
+  const buffer = audio.audioBuffer;
+  if (!buffer) { alert("Load audio first."); return; }
+  detectBtn.disabled = true;
+  detectStatus.hidden = false;
+  detectStatus.textContent = "Analysing audio…";
+  try {
+    const { bpm, offsetMs, confidence } = await detectTempo(buffer);
+    ($("#t-bpm") as HTMLInputElement).value = bpm.toFixed(2);
+    ($("#t-offset") as HTMLInputElement).value = String(offsetMs);
+    const pct = Math.round(confidence * 100);
+    detectStatus.textContent =
+      `Detected ~${bpm} BPM, offset ${offsetMs} ms (confidence ${pct}%). ` +
+      `Tweak if needed, then “Add BPM point”.`;
+  } catch (err) {
+    detectStatus.textContent = `Detection failed: ${(err as Error).message}`;
+  } finally {
+    detectBtn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Style / preferences
+// ---------------------------------------------------------------------------
+const skinSel = $("#pref-skin") as HTMLSelectElement;
+skinSel.addEventListener("change", () => {
+  settings.set("noteSkin", skinSel.value as any);
+});
+
+function bindVolume(sel: string, valSel: string, key: "musicVolume" | "hitsoundVolume" | "metronomeVolume" | "playScrollSpeed", apply?: (v: number) => void): void {
+  const el = $(sel) as HTMLInputElement;
+  const val = $(valSel);
+  const render = (v: number) => { val.textContent = key === "playScrollSpeed" ? v.toFixed(2) : `${Math.round(v * 100)}%`; };
+  el.addEventListener("input", () => {
+    const v = Number(el.value);
+    settings.set(key, v);
+    render(v);
+    apply?.(v);
+  });
+  (el as any)._syncPref = () => { el.value = String(settings.get()[key]); render(settings.get()[key]); };
+}
+
+bindVolume("#pref-music", "#val-music", "musicVolume", (v) => audio.setVolume(v));
+bindVolume("#pref-hitsound", "#val-hitsound", "hitsoundVolume");
+bindVolume("#pref-metronome", "#val-metronome", "metronomeVolume");
+bindVolume("#pref-playscroll", "#val-playscroll", "playScrollSpeed");
+
+const hitsoundsToggle = $("#pref-hitsounds") as HTMLInputElement;
+hitsoundsToggle.addEventListener("change", () => {
+  settings.set("hitsounds", hitsoundsToggle.checked);
+});
+
+function syncPrefs(): void {
+  const s = settings.get();
+  skinSel.value = s.noteSkin;
+  hitsoundsToggle.checked = s.hitsounds;
+  document.querySelectorAll<HTMLElement>("[id^='pref-']").forEach((el) => {
+    const fn = (el as any)._syncPref;
+    if (fn) fn();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Panel sync on store change
 // ---------------------------------------------------------------------------
 function syncPanels(): void {
@@ -747,8 +782,12 @@ function formatTime(ms: number, withMs = false): string {
 ($("#sel-rate") as HTMLSelectElement).addEventListener("change", (e) => {
   audio.setRate(Number((e.target as HTMLSelectElement).value));
 });
-($("#rng-scroll") as HTMLInputElement).addEventListener("input", (e) => {
-  vp.pxPerMs = Number((e.target as HTMLInputElement).value);
+const scrollRange = $("#rng-scroll") as HTMLInputElement;
+scrollRange.value = String(settings.get().scrollSpeed);
+scrollRange.addEventListener("input", () => {
+  const v = Number(scrollRange.value);
+  vp.pxPerMs = v;
+  settings.set("scrollSpeed", v);
 });
 // The play/pause icon tracks the engine, which emits ticks on every state change.
 audio.onTick(() => {
@@ -800,6 +839,8 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
+audio.setVolume(settings.get().musicVolume);
+syncPrefs();
 window.addEventListener("resize", rebuildPeaks);
 void restore();
 requestAnimationFrame(frame);
