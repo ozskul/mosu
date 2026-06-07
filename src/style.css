@@ -218,7 +218,10 @@ h3 { margin: 6px 0 2px; font-size: 13px; color: var(--text); }
 .diff-row.active { border-color: var(--accent); background: rgba(255, 95, 162, 0.1); }
 .diff-row .name { flex: 1; font-weight: 600; }
 .diff-row .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
-.diff-row .del { padding: 2px 7px; font-size: 11px; }
+.diff-row .rename, .diff-row .del { padding: 2px 7px; font-size: 11px; }
+.diff-rename {
+  flex: 1; min-width: 0; padding: 3px 6px; font-size: 12.5px; font-weight: 600;
+}
 
 .bg-thumb {
   width: 100%; max-height: 130px; object-fit: cover;
