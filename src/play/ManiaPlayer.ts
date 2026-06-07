@@ -11,7 +11,7 @@
 import { isHold, type Beatmap, type HitObject } from "../types.ts";
 import type { AudioEngine } from "../audio/AudioEngine.ts";
 import type { Settings } from "../state/settings.ts";
-import { drawNoteShape, columnColor, roundRect, drawCover } from "../render/shapes.ts";
+import { drawNoteShape, columnColor, roundRect, drawCover, arrowAngle } from "../render/shapes.ts";
 import {
   accuracy,
   codeToLabel,
@@ -397,10 +397,12 @@ export class ManiaPlayer {
     const noteH = Math.max(14, laneW * 0.34);
     const timeToY = (time: number) => receptorY - (time - t) * pxPerMs;
     void keys;
+    const skin = this.settings.noteSkin;
     for (const s of this.states) {
       const o = s.note;
       const cx = x0 + o.column * laneW + laneW / 2;
       const color = columnColor(o.column, this.beatmap.difficulty.keyCount);
+      const rot = skin === "arrow" ? arrowAngle(o.column) : 0;
       const yHead = timeToY(o.time);
 
       if (isHold(o)) {
@@ -423,23 +425,26 @@ export class ManiaPlayer {
         ctx.fill();
         ctx.restore();
         if (!s.judged || s.holding) {
-          drawNoteShape(ctx, this.settings.noteSkin, cx, headY, laneW * 0.78, noteH, {
+          drawNoteShape(ctx, skin, cx, headY, laneW * 0.78, noteH, {
             fill: color,
             stroke: "rgba(0,0,0,0.4)",
             strokeWidth: 1,
             glow: s.holding ? 14 : 0,
+            rotation: rot,
           });
-          drawNoteShape(ctx, this.settings.noteSkin, cx, yTail, laneW * 0.78, noteH, {
+          drawNoteShape(ctx, skin, cx, yTail, laneW * 0.78, noteH, {
             fill: shade(color, -0.15),
+            rotation: rot,
           });
         }
       } else {
         if (s.judged) continue;
         if (yHead < -noteH || yHead > H + noteH) continue;
-        drawNoteShape(ctx, this.settings.noteSkin, cx, yHead, laneW * 0.78, noteH, {
+        drawNoteShape(ctx, skin, cx, yHead, laneW * 0.78, noteH, {
           fill: color,
           stroke: "rgba(0,0,0,0.4)",
           strokeWidth: 1,
+          rotation: rot,
         });
       }
     }

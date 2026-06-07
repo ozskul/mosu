@@ -18,6 +18,8 @@ export interface PersistedDoc {
   /** Index of the difficulty that was being edited. */
   activeIndex: number;
   audioFilename: string | null;
+  /** Editor-only "map start" marker (ms) for test play; null if unset. */
+  mapStartMs?: number | null;
   savedAt: number;
   /** Legacy single-difficulty field (older saves). */
   beatmap?: Beatmap;
@@ -27,11 +29,13 @@ export function saveDocument(
   difficulties: Beatmap[],
   activeIndex: number,
   audioFilename: string | null,
+  mapStartMs: number | null = null,
 ): void {
   const doc: PersistedDoc = {
     difficulties,
     activeIndex,
     audioFilename,
+    mapStartMs,
     savedAt: Date.now(),
   };
   try {

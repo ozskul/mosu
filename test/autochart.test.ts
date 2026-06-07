@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { generateChart, type DifficultyLevel } from "../src/generate/autochart.ts";
+import {
+  generateChart,
+  recommendedOD,
+  type DifficultyLevel,
+} from "../src/generate/autochart.ts";
+import { arrowAngle } from "../src/render/shapes.ts";
 import { isHold, type TimingPoint } from "../src/types.ts";
 
 function red(bpm = 120): TimingPoint[] {
@@ -78,11 +83,56 @@ describe("generateChart", () => {
     expect(notes.some(isHold)).toBe(false);
   });
 
-  it("respects 1K (single column, no chords)", () => {
-    const notes = generateChart(onsets, tp, { keyCount: 1, level: "expert", seed: 1 });
-    expect(notes.every((o) => o.column === 0)).toBe(true);
-    // No two notes at the same time (no chords possible in 1K).
-    const times = notes.map((o) => o.time);
-    expect(new Set(times).size).toBe(times.length);
+  it("hold-note amount increases the number of holds", () => {
+    const few = gen("hard", { lnAmount: 0 }).filter(isHold).length;
+    const many = gen("hard", { lnAmount: 2 }).filter(isHold).length;
+    expect(few).toBe(0);
+    expect(many).toBeGreaterThan(0);
+  });
+
+  it("chord amount of 0 yields no simultaneous notes", () => {
+    const notes = gen("insane", { chordAmount: 0 });
+    const counts = new Map<number, number>();
+    for (const o of notes) counts.set(o.time, (counts.get(o.time) ?? 0) + 1);
+    expect([...counts.values()].every((c) => c === 1)).toBe(true);
+  });
+
+  it("works for every key count 1–10 with in-range columns", () => {
+    for (let k = 1; k <= 10; k++) {
+      const notes = generateChart(onsets, tp, { keyCount: k, level: "insane", seed: k });
+      expect(notes.length).toBeGreaterThan(0);
+      expect(notes.every((o) => o.column >= 0 && o.column < k)).toBe(true);
+    }
+  });
+});
+
+describe("recommendedOD", () => {
+  it("returns a sane default for tiny charts", () => {
+    expect(recommendedOD([])).toBe(7);
+  });
+
+  it("rises with note density and stays in range", () => {
+    const sparse = [0, 1000, 2000, 3000].map((t) => ({ time: t }));
+    const dense = Array.from({ length: 200 }, (_, i) => ({ time: i * 100 }));
+    const odSparse = recommendedOD(sparse);
+    const odDense = recommendedOD(dense);
+    expect(odDense).toBeGreaterThan(odSparse);
+    for (const od of [odSparse, odDense]) {
+      expect(od).toBeGreaterThanOrEqual(1);
+      expect(od).toBeLessThanOrEqual(10);
+      expect(od * 2).toBe(Math.round(od * 2)); // half-step rounded
+    }
+  });
+});
+
+describe("arrowAngle", () => {
+  it("maps 4K to left, down, up, right", () => {
+    expect([0, 1, 2, 3].map(arrowAngle)).toEqual([
+      -Math.PI / 2, Math.PI, 0, Math.PI / 2,
+    ]);
+  });
+  it("cycles every 4 columns", () => {
+    expect(arrowAngle(4)).toBe(arrowAngle(0));
+    expect(arrowAngle(7)).toBe(arrowAngle(3));
   });
 });

@@ -10,7 +10,7 @@ import { isHold, type Beatmap, type HitObject } from "../types.ts";
 import { gridLines } from "../timing/timing.ts";
 import type { Viewport } from "./Viewport.ts";
 import type { NoteSkin } from "../state/settings.ts";
-import { drawNoteShape, columnColor, roundRect, drawCover } from "./shapes.ts";
+import { drawNoteShape, columnColor, roundRect, drawCover, arrowAngle } from "./shapes.ts";
 
 export interface RenderInput {
   beatmap: Beatmap;
@@ -230,11 +230,11 @@ export class PlayfieldRenderer {
       ctx.fill();
       ctx.restore();
       // Head + tail caps.
-      this.cap(cx, yHead, lw, noteH, color, selected, input.skin);
-      this.cap(cx, yTail, lw, noteH, color, selected, input.skin);
+      this.cap(cx, yHead, lw, noteH, color, selected, input.skin, o.column);
+      this.cap(cx, yTail, lw, noteH, color, selected, input.skin, o.column);
     } else {
       if (yHead < -noteH || yHead > H + noteH) return;
-      this.cap(cx, yHead, lw, noteH, color, selected, input.skin);
+      this.cap(cx, yHead, lw, noteH, color, selected, input.skin, o.column);
     }
   }
 
@@ -246,12 +246,14 @@ export class PlayfieldRenderer {
     color: string,
     selected: boolean,
     skin: NoteSkin,
+    column: number,
   ): void {
     drawNoteShape(this.ctx, skin, cx, y, lw * 0.76, noteH, {
       fill: color,
       stroke: selected ? "#ffffff" : "rgba(0,0,0,0.35)",
       strokeWidth: selected ? 2.5 : 1,
       glow: selected ? 8 : 0,
+      rotation: skin === "arrow" ? arrowAngle(column) : 0,
     });
   }
 }
