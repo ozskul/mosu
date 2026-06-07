@@ -24,11 +24,6 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      # Configure (and enable, if not already) GitHub Pages for this repo so the
-      # first deploy works without a manual Settings toggle.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - run: npm ci
       - run: npm test
       # Build with the project-page base path so assets resolve under /mosu/.
