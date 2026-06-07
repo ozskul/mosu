@@ -38,7 +38,10 @@ import {
 } from "./state/difficulties.ts";
 import {
   generateChart,
+  recommendedOD,
   DIFFICULTY_LEVELS,
+  OD_BY_LEVEL,
+  HP_BY_LEVEL,
   type DifficultyLevel,
 } from "./generate/autochart.ts";
 
@@ -64,6 +67,8 @@ let testStartMs = 0;
 let onsets: number[] = [];
 let showOnsets = false;
 let muted = false;
+/** Editor-only "map start" position (ms) for test play; null = use playhead. */
+let mapStartMs: number | null = null;
 
 // The difficulty set: every difficulty shares the same audio. The store always
 // edits `difficulties[activeIndex]`; switching loads a different one.
@@ -200,6 +205,19 @@ function drawOverview(): void {
       ctx.moveTo(x + 2, 0);
       ctx.lineTo(x + 10, 4);
       ctx.lineTo(x + 2, 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Map-start flag (where Test play begins).
+    if (mapStartMs != null && mapStartMs >= 0 && mapStartMs <= dur) {
+      const x = (mapStartMs / dur) * W;
+      ctx.fillStyle = "#4ad06a";
+      ctx.fillRect(x, 0, 2, H);
+      ctx.beginPath();
+      ctx.moveTo(x, H);
+      ctx.lineTo(x + 9, H - 4);
+      ctx.lineTo(x, H - 8);
       ctx.closePath();
       ctx.fill();
     }
@@ -527,6 +545,8 @@ $("#btn-new").addEventListener("click", () => {
   bgBytes = null;
   refreshBgImage();
   void clearBackground();
+  mapStartMs = null;
+  updateStartLabel();
   keysSel.value = "4";
   syncPanels();
 });
@@ -574,6 +594,8 @@ async function handleFile(file: File): Promise<void> {
       const buf = new Uint8Array(await file.arrayBuffer());
       const contents = readOsz(buf);
       loadSet(contents.beatmaps, 0);
+      mapStartMs = null;
+      updateStartLabel();
       if (contents.audioBytes) {
         audioBytes = contents.audioBytes;
         await audio.load(toArrayBuffer(contents.audioBytes));
@@ -588,6 +610,8 @@ async function handleFile(file: File): Promise<void> {
     } else if (name.endsWith(".osu")) {
       const text = await file.text();
       loadSet([parseBeatmap(text)], 0);
+      mapStartMs = null;
+      updateStartLabel();
       onLoaded();
     } else if (isImageFile(file)) {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -712,7 +736,8 @@ function startTestPlay(): void {
   if (store.beatmap.hitObjects.length === 0) { alert("Place some notes first."); return; }
   store.clearSelection();
   audio.pause();
-  testStartMs = currentTime();
+  // Begin at the map-start marker if set, otherwise the current playhead.
+  testStartMs = mapStartMs != null ? mapStartMs : currentTime();
   const playCanvas = $("#play-canvas") as HTMLCanvasElement;
   $("#play-stage").hidden = false;
   player = new ManiaPlayer(
@@ -861,6 +886,30 @@ keysSel.addEventListener("change", () => {
 // Difficulty manager
 $("#btn-diff-add").addEventListener("click", () => addDifficulty(false));
 $("#btn-diff-dup").addEventListener("click", () => addDifficulty(true));
+
+// Recommend an OD from the current difficulty's note density.
+$("#btn-recommend-od").addEventListener("click", () => {
+  const od = recommendedOD(store.beatmap.hitObjects);
+  store.updateDifficulty({ od });
+});
+
+// Map-start marker (where Test play begins).
+function updateStartLabel(): void {
+  $("#start-label").textContent = mapStartMs == null ? "— not set" : formatTime(mapStartMs, true);
+}
+$("#btn-start-set").addEventListener("click", () => {
+  mapStartMs = Math.round(currentTime());
+  updateStartLabel();
+  scheduleSave();
+});
+$("#btn-start-jump").addEventListener("click", () => {
+  if (mapStartMs != null) audio.seek(mapStartMs);
+});
+$("#btn-start-clear").addEventListener("click", () => {
+  mapStartMs = null;
+  updateStartLabel();
+  scheduleSave();
+});
 
 // Preview point ("where the song-select snippet starts") — set without typing.
 $("#btn-preview-set").addEventListener("click", () => {
@@ -1076,11 +1125,21 @@ const genDiffSel = $("#gen-diff") as HTMLSelectElement;
 const genDensity = $("#gen-density") as HTMLInputElement;
 const genDensityVal = $("#gen-density-val");
 const genLn = $("#gen-ln") as HTMLInputElement;
+const genLnAmt = $("#gen-ln-amt") as HTMLInputElement;
+const genLnAmtVal = $("#gen-ln-amt-val");
+const genChord = $("#gen-chord") as HTMLInputElement;
+const genChordVal = $("#gen-chord-val");
 const genStatus = $("#gen-status");
 
-const renderDensity = () => { genDensityVal.textContent = `${Number(genDensity.value).toFixed(2)}×`; };
-genDensity.addEventListener("input", renderDensity);
-renderDensity();
+const renderGenVals = () => {
+  genDensityVal.textContent = `${Number(genDensity.value).toFixed(2)}×`;
+  genLnAmtVal.textContent = `${Number(genLnAmt.value).toFixed(2)}×`;
+  genChordVal.textContent = `${Number(genChord.value).toFixed(2)}×`;
+};
+genDensity.addEventListener("input", renderGenVals);
+genLnAmt.addEventListener("input", renderGenVals);
+genChord.addEventListener("input", renderGenVals);
+renderGenVals();
 
 function genSetStatus(msg: string): void {
   genStatus.hidden = false;
@@ -1125,6 +1184,8 @@ function makeNotes(level: DifficultyLevel) {
     level,
     density: Number(genDensity.value),
     longNotes: genLn.checked,
+    lnAmount: Number(genLnAmt.value),
+    chordAmount: Number(genChord.value),
     seed: (Math.random() * 0xffffffff) >>> 0,
   });
 }
@@ -1142,7 +1203,8 @@ async function generateInto(target: "current" | "new"): Promise<void> {
     store.updateMetadata({ version: uniqueVersion(levelLabel(level)) });
   }
   store.replaceNotes(notes);
-  genSetStatus(`Generated ${notes.length} notes (${levelLabel(level)}). Undo (Ctrl+Z) reverts it.`);
+  store.updateDifficulty({ od: OD_BY_LEVEL[level], hp: HP_BY_LEVEL[level] });
+  genSetStatus(`Generated ${notes.length} notes (${levelLabel(level)}, OD ${OD_BY_LEVEL[level]}). Undo (Ctrl+Z) reverts it.`);
 }
 
 async function generateSpread(): Promise<void> {
@@ -1162,6 +1224,7 @@ async function generateSpread(): Promise<void> {
     }
     const notes = makeNotes(level);
     store.replaceNotes(notes);
+    store.updateDifficulty({ od: OD_BY_LEVEL[level], hp: HP_BY_LEVEL[level] });
     total += notes.length;
   }
   renderDiffList();
@@ -1316,7 +1379,7 @@ function scheduleSave(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
     commitActive();
-    saveDocument(difficulties, activeIndex, store.beatmap.general.audioFilename);
+    saveDocument(difficulties, activeIndex, store.beatmap.general.audioFilename, mapStartMs);
   }, 600);
 }
 
@@ -1331,6 +1394,8 @@ async function restore(): Promise<void> {
   const doc = loadDocument();
   if (doc) {
     loadSet(doc.difficulties, doc.activeIndex);
+    mapStartMs = doc.mapStartMs ?? null;
+    updateStartLabel();
     const bytes = await loadAudio();
     if (bytes) {
       audioBytes = bytes;

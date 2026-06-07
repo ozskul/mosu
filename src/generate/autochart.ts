@@ -44,22 +44,48 @@ interface Preset {
 }
 
 const PRESETS: Record<DifficultyLevel, Preset> = {
-  easy: { snapDivisor: 2, minGapBeats: 1.0, chordChance: 0.0, maxChord: 1, lnChance: 0.18, lnMinGapBeats: 1.5 },
-  normal: { snapDivisor: 2, minGapBeats: 0.5, chordChance: 0.06, maxChord: 2, lnChance: 0.12, lnMinGapBeats: 1.0 },
-  hard: { snapDivisor: 4, minGapBeats: 0.5, chordChance: 0.16, maxChord: 2, lnChance: 0.08, lnMinGapBeats: 1.0 },
-  insane: { snapDivisor: 4, minGapBeats: 0.25, chordChance: 0.28, maxChord: 3, lnChance: 0.05, lnMinGapBeats: 0.75 },
-  expert: { snapDivisor: 4, minGapBeats: 0.25, chordChance: 0.42, maxChord: 4, lnChance: 0.03, lnMinGapBeats: 0.5 },
+  easy: { snapDivisor: 2, minGapBeats: 1.0, chordChance: 0.0, maxChord: 1, lnChance: 0.28, lnMinGapBeats: 1.0 },
+  normal: { snapDivisor: 2, minGapBeats: 0.5, chordChance: 0.06, maxChord: 2, lnChance: 0.24, lnMinGapBeats: 0.5 },
+  hard: { snapDivisor: 4, minGapBeats: 0.5, chordChance: 0.16, maxChord: 2, lnChance: 0.18, lnMinGapBeats: 0.5 },
+  insane: { snapDivisor: 4, minGapBeats: 0.25, chordChance: 0.28, maxChord: 3, lnChance: 0.13, lnMinGapBeats: 0.5 },
+  expert: { snapDivisor: 4, minGapBeats: 0.25, chordChance: 0.42, maxChord: 4, lnChance: 0.09, lnMinGapBeats: 0.5 },
+};
+
+/** Recommended difficulty settings per generated level. */
+export const OD_BY_LEVEL: Record<DifficultyLevel, number> = {
+  easy: 4, normal: 5, hard: 7, insane: 8, expert: 8.5,
+};
+export const HP_BY_LEVEL: Record<DifficultyLevel, number> = {
+  easy: 6, normal: 6.5, hard: 7.5, insane: 8, expert: 8,
 };
 
 export interface GenerateOptions {
   keyCount: number;
   level: DifficultyLevel;
-  /** Note-count multiplier, ~0.5 (sparse) .. 1.3 (dense). Default 1. */
+  /** Note-count multiplier, ~0.5 (sparse) .. 1.4 (dense). Default 1. */
   density?: number;
   /** Allow hold (long) notes. Default true. */
   longNotes?: boolean;
+  /** Hold-note frequency multiplier (0 = none, 2 = lots). Default 1. */
+  lnAmount?: number;
+  /** Chord/jump frequency multiplier (0 = none, 2 = lots). Default 1. */
+  chordAmount?: number;
   /** PRNG seed for reproducibility. */
   seed?: number;
+}
+
+/**
+ * Recommend an Overall Difficulty from a chart's note density (notes/second),
+ * in the usual osu!mania range. Rounded to the nearest 0.5.
+ */
+export function recommendedOD(notes: { time: number }[]): number {
+  if (notes.length < 2) return 7;
+  const first = notes[0].time;
+  const last = notes[notes.length - 1].time;
+  const span = Math.max(1, (last - first) / 1000);
+  const nps = notes.length / span;
+  const od = 4 + nps * 0.55;
+  return Math.round(clamp(od, 3, 9.5) * 2) / 2;
 }
 
 export function generateChart(
@@ -71,6 +97,8 @@ export function generateChart(
   const preset = PRESETS[opts.level];
   const density = clamp(opts.density ?? 1, 0.3, 1.6);
   const longNotes = opts.longNotes ?? true;
+  const lnChance = clamp(preset.lnChance * (opts.lnAmount ?? 1), 0, 0.95);
+  const chordChance = clamp(preset.chordChance * (opts.chordAmount ?? 1), 0, 0.95);
   const rng = mulberry32((opts.seed ?? 1) >>> 0);
   if (onsets.length === 0) return [];
 
@@ -105,7 +133,7 @@ export function generateChart(
     const next = times[i + 1];
 
     let size = 1;
-    if (keys > 1 && rng() < preset.chordChance) {
+    if (keys > 1 && rng() < chordChance) {
       size = 2;
       while (size < preset.maxChord && size < keys && rng() < 0.35) size++;
     }
@@ -115,7 +143,7 @@ export function generateChart(
     if (longNotes && cols.length === 1 && next !== undefined) {
       const beat = beatLengthFromBpm(activeBpmPoint(timingPoints, t).bpm);
       const gap = next - t;
-      if (gap >= preset.lnMinGapBeats * beat && rng() < preset.lnChance) {
+      if (gap >= preset.lnMinGapBeats * beat && rng() < lnChance) {
         // End a touch before the next note so the release is comfortable.
         endTime = Math.round(next - Math.min(gap * 0.25, beat * 0.25));
       }

@@ -29,6 +29,8 @@ export interface ShapeStyle {
   strokeWidth?: number;
   /** Glow/shadow blur for a lit-up look. */
   glow?: number;
+  /** Rotation in radians (used by the directional arrow skin). */
+  rotation?: number;
 }
 
 /**
@@ -49,7 +51,8 @@ function traceShape(
       break;
     }
     case "circle": {
-      const r = Math.min(w, h * 1.6) / 2;
+      // Sized to the lane width so circles read at scale (like osu! notes).
+      const r = w * 0.46;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.closePath();
@@ -57,7 +60,7 @@ function traceShape(
     }
     case "diamond": {
       const rx = w / 2;
-      const ry = Math.max(h, w * 0.55) / 2;
+      const ry = Math.max(h, w * 0.6) / 2;
       ctx.beginPath();
       ctx.moveTo(cx, cy - ry);
       ctx.lineTo(cx + rx, cy);
@@ -67,21 +70,23 @@ function traceShape(
       break;
     }
     case "arrow": {
-      // A downward-pointing chevron block (notes fall toward the receptor).
-      const aw = w * 0.78;
-      const ah = Math.max(h, w * 0.5);
-      const x0 = cx - aw / 2;
-      const x1 = cx + aw / 2;
+      // An UP-pointing arrow (shaft + head); the caller rotates it per column
+      // so each lane shows a real ← ↓ ↑ → direction.
+      const aw = w * 0.82;
+      const ah = Math.max(h * 1.1, w * 0.82);
+      const headH = ah * 0.5;
+      const sw = aw * 0.42; // shaft width
       const top = cy - ah / 2;
       const bot = cy + ah / 2;
-      const mid = cy + ah * 0.08;
+      const headBaseY = top + headH;
       ctx.beginPath();
-      ctx.moveTo(x0, top);
-      ctx.lineTo(cx, top + ah * 0.35);
-      ctx.lineTo(x1, top);
-      ctx.lineTo(x1, mid);
-      ctx.lineTo(cx, bot);
-      ctx.lineTo(x0, mid);
+      ctx.moveTo(cx, top); // apex
+      ctx.lineTo(cx + aw / 2, headBaseY); // head right
+      ctx.lineTo(cx + sw / 2, headBaseY);
+      ctx.lineTo(cx + sw / 2, bot); // shaft right
+      ctx.lineTo(cx - sw / 2, bot); // shaft left
+      ctx.lineTo(cx - sw / 2, headBaseY);
+      ctx.lineTo(cx - aw / 2, headBaseY); // head left
       ctx.closePath();
       break;
     }
@@ -102,7 +107,15 @@ export function drawNoteShape(
     ctx.shadowColor = style.fill;
     ctx.shadowBlur = style.glow;
   }
-  traceShape(ctx, skin, cx, cy, w, h);
+  // For rotated skins (arrows), draw at the origin under a rotation transform.
+  const rot = style.rotation ?? 0;
+  if (rot) {
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    traceShape(ctx, skin, 0, 0, w, h);
+  } else {
+    traceShape(ctx, skin, cx, cy, w, h);
+  }
   ctx.fillStyle = style.fill;
   ctx.fill();
   ctx.shadowBlur = 0;
@@ -112,6 +125,15 @@ export function drawNoteShape(
     ctx.stroke();
   }
   ctx.restore();
+}
+
+/**
+ * Rotation (radians) for the directional arrow skin per column. 4K reads as the
+ * classic ← ↓ ↑ →; other key counts cycle the four directions across columns.
+ */
+const ARROW_DIRS = [-Math.PI / 2, Math.PI, 0, Math.PI / 2]; // left, down, up, right
+export function arrowAngle(column: number): number {
+  return ARROW_DIRS[((column % 4) + 4) % 4];
 }
 
 /** A pleasant per-column note colour, consistent across editor and play. */
