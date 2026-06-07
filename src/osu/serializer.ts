@@ -94,6 +94,10 @@ export function serializeBeatmap(map: Beatmap): string {
 
   L.push("[Events]");
   L.push("//Background and Video events");
+  if (map.general.backgroundFilename) {
+    // Background event: 0,0,"filename",xOffset,yOffset
+    L.push(`0,0,"${map.general.backgroundFilename}",0,0`);
+  }
   L.push("//Break Periods");
   L.push("//Storyboard Layer 0 (Background)");
   L.push("//Storyboard Layer 1 (Fail)");

@@ -112,4 +112,13 @@ describe("round-trip", () => {
     expect(text).toContain("Mode: 3");
     expect(text).toContain("CircleSize:4");
   });
+
+  it("round-trips a background image event", () => {
+    const map = createEmptyBeatmap(4);
+    map.general.backgroundFilename = "bg.jpg";
+    const text = serializeBeatmap(map);
+    expect(text).toContain('0,0,"bg.jpg",0,0');
+    const back = parseBeatmap(text);
+    expect(back.general.backgroundFilename).toBe("bg.jpg");
+  });
 });

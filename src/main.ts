@@ -18,11 +18,15 @@ import {
 import { serializeBeatmap } from "./osu/serializer.ts";
 import { buildOsz, readOsz, osuFileName, oszFileName } from "./osu/osz.ts";
 import { parseBeatmap } from "./osu/parser.ts";
+import { collectExportIssues, describeIssues } from "./osu/validate.ts";
 import {
   saveDocument,
   loadDocument,
   saveAudio,
   loadAudio,
+  saveBackground,
+  loadBackground,
+  clearBackground,
 } from "./state/persistence.ts";
 import { isHold, type Beatmap, type HitObject } from "./types.ts";
 import {
@@ -41,6 +45,9 @@ const settings = new SettingsStore();
 const vp = new Viewport(settings.get().scrollSpeed, 0);
 
 let audioBytes: Uint8Array | null = null;
+let bgBytes: Uint8Array | null = null;
+let bgImage: HTMLImageElement | null = null;
+let bgUrl: string | null = null;
 let divisor = 4;
 let clipboard: HitObject[] = [];
 let metronomeOn = false;
@@ -119,6 +126,7 @@ function frame(): void {
         currentTime: currentTime(),
         divisor,
         skin: settings.get().noteSkin,
+        background: bgImage,
         onsets: showOnsets ? onsets : null,
         pendingHold: pending?.kind === "hold" ? {
           column: pending.column,
@@ -510,6 +518,9 @@ $("#btn-test").addEventListener("click", () => (player ? exitTestPlay() : startT
 $("#btn-new").addEventListener("click", () => {
   if (store.dirty && !confirm("Discard unsaved changes and start a new beatmap?")) return;
   loadSet(emptySet(4), 0);
+  bgBytes = null;
+  refreshBgImage();
+  void clearBackground();
   keysSel.value = "4";
   syncPanels();
 });
@@ -564,11 +575,18 @@ async function handleFile(file: File): Promise<void> {
         rebuildPeaks();
         resetOnsets();
       }
+      if (contents.backgroundBytes && contents.backgroundFilename) {
+        setBackground(contents.backgroundBytes, contents.backgroundFilename);
+      }
       onLoaded();
     } else if (name.endsWith(".osu")) {
       const text = await file.text();
       loadSet([parseBeatmap(text)], 0);
       onLoaded();
+    } else if (isImageFile(file)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      setBackground(bytes, file.name);
+      onLoaded(); // keep the drop overlay from lingering over the canvas
     } else {
       // Treat as audio.
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -593,8 +611,20 @@ function onLoaded(): void {
 // ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
+/** Show export problems and let the user decide. Returns true to proceed. */
+function passesExportCheck(maps: Beatmap[]): boolean {
+  const issues = collectExportIssues(maps, audioBytes !== null && audioBytes.length > 0);
+  if (issues.length === 0) return true;
+  const hasBlocking = issues.some((i) => i.blocking);
+  const head = hasBlocking
+    ? "This map may not play in osu!:"
+    : "Heads up:";
+  return confirm(`${head}\n\n${describeIssues(issues)}\n\nExport anyway?`);
+}
+
 function downloadOsu(): void {
   // Exports just the active difficulty.
+  if (!passesExportCheck([store.beatmap])) return;
   const text = serializeBeatmap(store.beatmap);
   triggerDownload(new Blob([text], { type: "text/plain" }), osuFileName(store.beatmap));
   store.markSaved();
@@ -604,9 +634,59 @@ function downloadOsz(): void {
   // Exports the whole set (every difficulty) as one mapset.
   commitActive();
   syncSharedMetadata(store.beatmap, difficulties);
-  const blob = buildOsz(difficulties, audioBytes);
+  if (!passesExportCheck(difficulties)) return;
+  const extra: Record<string, Uint8Array> = {};
+  const bgName = store.beatmap.general.backgroundFilename;
+  if (bgName && bgBytes) extra[bgName] = bgBytes;
+  const blob = buildOsz(difficulties, audioBytes, extra);
   triggerDownload(blob, oszFileName(store.beatmap));
   store.markSaved();
+}
+
+// ---------------------------------------------------------------------------
+// Background / cover image
+// ---------------------------------------------------------------------------
+function setBackground(bytes: Uint8Array, filename: string): void {
+  bgBytes = bytes;
+  store.updateGeneral({ backgroundFilename: filename });
+  void saveBackground(bytes);
+  refreshBgImage();
+}
+
+function removeBackground(): void {
+  bgBytes = null;
+  store.updateGeneral({ backgroundFilename: undefined });
+  void clearBackground();
+  refreshBgImage();
+}
+
+/** Rebuild the object URL + Image element + thumbnail from current bg bytes. */
+function refreshBgImage(): void {
+  if (bgUrl) {
+    URL.revokeObjectURL(bgUrl);
+    bgUrl = null;
+  }
+  const thumb = $("#bg-thumb") as HTMLImageElement;
+  const removeBtn = $("#btn-bg-remove") as HTMLButtonElement;
+  if (bgBytes) {
+    const blob = new Blob([bgBytes.slice()]);
+    bgUrl = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { bgImage = img; };
+    img.src = bgUrl;
+    thumb.src = bgUrl;
+    thumb.hidden = false;
+    removeBtn.hidden = false;
+  } else {
+    bgImage = null;
+    thumb.removeAttribute("src");
+    thumb.hidden = true;
+    removeBtn.hidden = true;
+  }
+}
+
+function isImageFile(file: File): boolean {
+  return file.type.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name);
 }
 
 function triggerDownload(blob: Blob, filename: string): void {
@@ -636,6 +716,7 @@ function startTestPlay(): void {
     settings.get(),
     exitTestPlay,
     testStartMs,
+    bgImage,
   );
   player.start();
   $("#btn-test").textContent = "■ Stop";
@@ -785,6 +866,19 @@ $("#btn-preview-jump").addEventListener("click", () => {
 });
 $("#btn-preview-clear").addEventListener("click", () => {
   store.updateGeneral({ previewTime: -1 });
+});
+
+// Background / cover image picker.
+const bgInput = $("#bg-input") as HTMLInputElement;
+$("#btn-bg-pick").addEventListener("click", () => bgInput.click());
+$("#btn-bg-remove").addEventListener("click", () => removeBackground());
+bgInput.addEventListener("change", async () => {
+  const f = bgInput.files?.[0];
+  if (f) {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    setBackground(bytes, f.name);
+  }
+  bgInput.value = "";
 });
 
 // Timing controls
@@ -1136,6 +1230,11 @@ async function restore(): Promise<void> {
         rebuildPeaks();
         dropHint.hidden = true;
       } catch { /* corrupt audio cache */ }
+    }
+    const bg = await loadBackground();
+    if (bg && store.beatmap.general.backgroundFilename) {
+      bgBytes = bg;
+      refreshBgImage();
     }
   }
   syncPanels();

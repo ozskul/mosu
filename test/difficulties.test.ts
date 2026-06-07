@@ -91,4 +91,16 @@ describe("osz multi-difficulty round-trip", () => {
     const read = readOsz(bytes);
     expect(read.beatmaps).toHaveLength(2); // neither dropped
   });
+
+  it("bundles and recovers a background image", async () => {
+    const b = diff("Hard", 4, 4);
+    b.general.backgroundFilename = "cover.jpg";
+    const bg = new Uint8Array([9, 8, 7, 6]);
+    const blob = buildOsz([b], new Uint8Array([1, 2]), { "cover.jpg": bg });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const read = readOsz(bytes);
+    expect(read.beatmaps[0].general.backgroundFilename).toBe("cover.jpg");
+    expect(read.backgroundFilename).toBe("cover.jpg");
+    expect(Array.from(read.backgroundBytes!)).toEqual([9, 8, 7, 6]);
+  });
 });

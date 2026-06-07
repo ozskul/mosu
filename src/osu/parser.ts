@@ -74,11 +74,19 @@ export function parseBeatmap(text: string): Beatmap {
         if (tp) map.timingPoints.push(tp);
         break;
       }
+      case "Events": {
+        // Background event: 0,0,"bg.jpg",0,0  (or unquoted filename).
+        const bg = line.match(/^0\s*,\s*0\s*,\s*"?([^",]+)"?/);
+        if (bg && !map.general.backgroundFilename) {
+          map.general.backgroundFilename = bg[1].trim();
+        }
+        break;
+      }
       case "HitObjects":
         rawHitObjects.push(line);
         break;
       default:
-        // Ignore [Editor], [Events], [Colours], storyboard, etc.
+        // Ignore [Editor], [Colours], storyboard, etc.
         break;
     }
   }

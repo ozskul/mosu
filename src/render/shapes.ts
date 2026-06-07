@@ -121,6 +121,31 @@ const COLUMN_COLORS = [
   "#ff8a3d", "#a1887f",
 ];
 
+/**
+ * Draw an image covering the whole (W×H) area, centre-cropped (CSS
+ * background-size: cover). No-op if the image hasn't loaded yet.
+ */
+export function drawCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  W: number,
+  H: number,
+): void {
+  if (!img.width || !img.height) return;
+  const ir = img.width / img.height;
+  const cr = W / H;
+  let dw: number;
+  let dh: number;
+  if (ir > cr) {
+    dh = H;
+    dw = H * ir;
+  } else {
+    dw = W;
+    dh = W / ir;
+  }
+  ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
 export function columnColor(column: number, keyCount: number): string {
   // For odd key counts, tint the centre column white-ish like many mania skins.
   if (keyCount % 2 === 1 && column === Math.floor(keyCount / 2)) return "#f4f4f8";
