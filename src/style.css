@@ -12,6 +12,14 @@
 
 * { box-sizing: border-box; }
 
+/*
+ * The HTML `hidden` attribute only sets `display: none` at the user-agent level,
+ * which any explicit `display` rule (e.g. our `.tab`/`.drop-hint` flex layouts)
+ * overrides. This makes `hidden` authoritative again so toggling `el.hidden`
+ * from JS reliably shows/hides those elements.
+ */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
