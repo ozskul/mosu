@@ -4,3 +4,9 @@ dist
 .DS_Store
 .vscode
 coverage
+
+# graphify — only the portable graph + report are committed; the rest is
+# machine-specific/volatile local state.
+.graphify/*
+!.graphify/graph.json
+!.graphify/GRAPH_REPORT.md

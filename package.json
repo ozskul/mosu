@@ -10,9 +10,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "graph": "graphify update",
+    "graph:serve": "graphify serve .graphify/graph.json"
   },
   "devDependencies": {
+    "@sentropic/graphify": "^0.10.0",
     "@types/node": "^20.19.42",
     "jsdom": "^25.0.1",
     "typescript": "^5.5.4",
