@@ -184,6 +184,56 @@ function fineDivisor(k: number, divisor: number): number {
 }
 
 /**
+ * Find the timing-point offset (ms) that best aligns a beat grid of the given
+ * BPM to a set of detected onset times — i.e. the phase that lands the most
+ * onsets on (or near) beat lines. Returns an offset in [0, beatLength).
+ *
+ * Each onset's phase within a beat is a candidate; the best-scoring candidate
+ * (closest onsets, distance-weighted) is then refined with a circular mean of
+ * the onsets near it.
+ */
+export function alignOffsetToOnsets(onsets: readonly number[], bpm: number): number {
+  if (onsets.length === 0) return 0;
+  const period = beatLengthFromBpm(bpm);
+  const tol = Math.min(40, period * 0.18);
+
+  const phaseOf = (t: number) => ((t % period) + period) % period;
+  const circDist = (a: number) => {
+    const d = Math.abs(a);
+    return Math.min(d, period - d);
+  };
+
+  let bestPhase = 0;
+  let bestScore = -1;
+  for (const o of onsets) {
+    const phase = phaseOf(o);
+    let score = 0;
+    for (const x of onsets) {
+      const d = circDist(((x - phase) % period + period) % period);
+      if (d <= tol) score += 1 - d / tol;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestPhase = phase;
+    }
+  }
+
+  // Refine: average the signed offsets of nearby onsets from the candidate.
+  let sum = 0;
+  let count = 0;
+  for (const x of onsets) {
+    let signed = ((x - bestPhase) % period + period) % period;
+    if (signed > period / 2) signed -= period; // nearest beat, signed
+    if (Math.abs(signed) <= tol) {
+      sum += signed;
+      count++;
+    }
+  }
+  const refined = count > 0 ? bestPhase + sum / count : bestPhase;
+  return Math.round(((refined % period) + period) % period);
+}
+
+/**
  * Estimate BPM from a series of tap timestamps (ms). Uses the average interval
  * across the taps. Returns null if there are fewer than two taps.
  */

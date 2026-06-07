@@ -7,6 +7,7 @@ import {
   bpmFromTaps,
   activeBpmPoint,
   gridLines,
+  alignOffsetToOnsets,
 } from "../src/timing/timing.ts";
 import type { TimingPoint } from "../src/types.ts";
 
@@ -85,6 +86,36 @@ describe("bpmFromTaps", () => {
   it("estimates BPM from even taps", () => {
     // 500 ms apart -> 120 BPM
     expect(bpmFromTaps([0, 500, 1000, 1500])).toBeCloseTo(120, 6);
+  });
+});
+
+describe("alignOffsetToOnsets", () => {
+  it("recovers the phase of beats at a known offset", () => {
+    const bpm = 120; // period 500ms
+    const phase = 137;
+    const onsets: number[] = [];
+    for (let k = 0; k < 20; k++) onsets.push(phase + k * 500);
+    expect(alignOffsetToOnsets(onsets, bpm)).toBeCloseTo(137, 0);
+  });
+
+  it("is robust to a little timing jitter and stray onsets", () => {
+    const bpm = 150; // period 400ms
+    const phase = 80;
+    const onsets: number[] = [];
+    for (let k = 0; k < 24; k++) onsets.push(phase + k * 400 + (k % 2 ? 4 : -3));
+    onsets.push(1234, 222, 999); // noise
+    const got = alignOffsetToOnsets(onsets, bpm);
+    expect(Math.abs(got - phase)).toBeLessThanOrEqual(8);
+  });
+
+  it("returns an offset within one beat period", () => {
+    const got = alignOffsetToOnsets([5000, 5500, 6000], 120);
+    expect(got).toBeGreaterThanOrEqual(0);
+    expect(got).toBeLessThan(500);
+  });
+
+  it("returns 0 for no onsets", () => {
+    expect(alignOffsetToOnsets([], 120)).toBe(0);
   });
 });
 
