@@ -102,6 +102,9 @@
                 🥁 Detect beats on chart
               </button>
               <label class="checkbox"><input id="show-beats" type="checkbox" /> Show detected beats (teal guides)</label>
+              <button id="btn-align" class="full accent" title="Automatically set BPM + offset so the beat grid lines up with the detected beats">
+                🎯 Auto-align grid to beats
+              </button>
               <p id="beats-status" class="muted" hidden></p>
               <hr />
               <div class="field-row">
@@ -171,8 +174,9 @@
               <ul class="help">
                 <li><b>Click</b> a lane to place / remove a note</li>
                 <li><b>Click + drag</b> vertically to draw a hold note</li>
+                <li><b>Drag a hold's end</b> to scale its length</li>
+                <li><b>Grab the middle</b> of a note to move it</li>
                 <li><b>Shift + drag</b> on empty space to box-select</li>
-                <li><b>Drag</b> a selected note to move it</li>
                 <li><b>M</b> mirror · <b>Delete</b> remove · <b>Ctrl+C/V</b> copy/paste</li>
               </ul>
               <h3>Navigation</h3>

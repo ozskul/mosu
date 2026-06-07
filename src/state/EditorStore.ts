@@ -28,6 +28,8 @@ export class EditorStore {
   private redoStack: Snapshot[] = [];
   private listeners = new Set<Listener>();
   private _dirty = false;
+  /** When true, individual mutations don't snapshot (see beginBatch). */
+  private batching = false;
 
   constructor(beatmap?: Beatmap) {
     this._beatmap = beatmap ?? createEmptyBeatmap(4);
@@ -82,9 +84,24 @@ export class EditorStore {
     this.emit();
   }
 
+  /**
+   * Begin a batch (e.g. a drag): take a single history snapshot up front, then
+   * suppress per-mutation snapshots until endBatch(). This makes an entire drag
+   * one undo step instead of dozens.
+   */
+  beginBatch(): void {
+    if (this.batching) return;
+    this.pushHistory();
+    this.batching = true;
+  }
+
+  endBatch(): void {
+    this.batching = false;
+  }
+
   /** Run a mutation, snapshotting state first so it can be undone. */
   private mutate(fn: () => void): void {
-    this.pushHistory();
+    if (!this.batching) this.pushHistory();
     fn();
     this._dirty = true;
     this.emit();
@@ -295,6 +312,23 @@ export class EditorStore {
         o.time += deltaTime;
         if (o.endTime !== undefined) o.endTime += deltaTime;
         o.column = clampInt(o.column + deltaColumn, 0, keys - 1);
+      }
+      this._beatmap.hitObjects.sort((a, b) => a.time - b.time);
+    });
+  }
+
+  /**
+   * Resize a hold note by dragging one end to `time`. Keeps the note a valid
+   * hold (head strictly before tail by at least `minLen` ms). Taps are ignored.
+   */
+  resizeHoldEnd(id: number, end: "head" | "tail", time: number, minLen = 1): void {
+    this.mutate(() => {
+      const o = this._beatmap.hitObjects.find((n) => n.id === id);
+      if (!o || o.endTime === undefined) return;
+      if (end === "head") {
+        o.time = Math.min(time, o.endTime - minLen);
+      } else {
+        o.endTime = Math.max(time, o.time + minLen);
       }
       this._beatmap.hitObjects.sort((a, b) => a.time - b.time);
     });

@@ -13,6 +13,7 @@ import {
   stepTime,
   bpmFromTaps,
   activeBpmPoint,
+  alignOffsetToOnsets,
 } from "./timing/timing.ts";
 import { serializeBeatmap } from "./osu/serializer.ts";
 import { buildOsz, readOsz, osuFileName, oszFileName } from "./osu/osz.ts";
@@ -188,11 +189,15 @@ type Pending =
   | { kind: "place"; column: number; startTime: number; currentTime: number; startY: number }
   | { kind: "hold"; column: number; startTime: number; currentTime: number; startY: number }
   | { kind: "move"; lastTime: number; lastColumn: number; moved: boolean }
+  | { kind: "resize"; id: number; end: "head" | "tail"; last: number }
   | { kind: "box"; x0: number; y0: number; x1: number; y1: number };
 
 let pending: Pending | null = null;
 let hoverColumn: number | null = null;
+/** True once a move/resize drag has actually changed something (one undo step). */
+let dragBatch = false;
 const DRAG_THRESHOLD = 6; // px before a click becomes a hold/drag
+const END_GRAB_PX = 13; // distance to a hold's head/tail to grab-resize it
 
 function pointerToCell(e: PointerEvent): { column: number; time: number; y: number } {
   const rect = canvas.getBoundingClientRect();
@@ -233,7 +238,27 @@ canvas.addEventListener("pointermove", (e) => {
   const rect = canvas.getBoundingClientRect();
   hoverColumn = renderer.columnAtX(e.clientX - rect.left, rect.width, store.keyCount);
 
-  if (!pending) return;
+  if (!pending) {
+    // Cursor affordance: ends of a hold resize, middle/tap moves.
+    if (audio.isLoaded && !player) {
+      const note = noteAtPointer(e);
+      let cursor = "crosshair";
+      if (note) {
+        cursor = "move";
+        if (isHold(note)) {
+          const y = e.clientY - rect.top;
+          const t = currentTime();
+          const dEnd = Math.min(
+            Math.abs(y - vp.timeToY(note.time, t)),
+            Math.abs(y - vp.timeToY(note.endTime!, t)),
+          );
+          if (dEnd <= END_GRAB_PX) cursor = "ns-resize";
+        }
+      }
+      canvas.style.cursor = cursor;
+    }
+    return;
+  }
   const cell = pointerToCell(e);
   if (pending.kind === "place") {
     const dy = Math.abs(cell.y - pending.startY);
@@ -246,10 +271,17 @@ canvas.addEventListener("pointermove", (e) => {
     const dt = cell.time - pending.lastTime;
     const dc = cell.column - pending.lastColumn;
     if (dt !== 0 || dc !== 0) {
+      if (!dragBatch) { store.beginBatch(); dragBatch = true; }
       store.moveSelection(dt, dc);
       pending.lastTime = cell.time;
       pending.lastColumn = cell.column;
       pending.moved = true;
+    }
+  } else if (pending.kind === "resize") {
+    if (cell.time !== pending.last) {
+      if (!dragBatch) { store.beginBatch(); dragBatch = true; }
+      store.resizeHoldEnd(pending.id, pending.end, cell.time);
+      pending.last = cell.time;
     }
   } else if (pending.kind === "box") {
     pending.x1 = e.clientX - rect.left;
@@ -279,8 +311,24 @@ canvas.addEventListener("pointerdown", (e) => {
   }
 
   if (hit) {
-    if (!store.selection.has(hit.id!)) store.setSelection([hit.id!]);
-    pending = { kind: "move", lastTime: cell.time, lastColumn: cell.column, moved: false };
+    // For a hold, grabbing near an end resizes that end; grabbing the middle
+    // (or a tap) moves it.
+    const y = e.clientY - rect.top;
+    const t = currentTime();
+    let end: "head" | "tail" | null = null;
+    if (isHold(hit)) {
+      const dHead = Math.abs(y - vp.timeToY(hit.time, t));
+      const dTail = Math.abs(y - vp.timeToY(hit.endTime!, t));
+      if (dHead <= END_GRAB_PX && dHead <= dTail) end = "head";
+      else if (dTail <= END_GRAB_PX) end = "tail";
+    }
+    if (end) {
+      store.setSelection([hit.id!]);
+      pending = { kind: "resize", id: hit.id!, end, last: NaN };
+    } else {
+      if (!store.selection.has(hit.id!)) store.setSelection([hit.id!]);
+      pending = { kind: "move", lastTime: cell.time, lastColumn: cell.column, moved: false };
+    }
     return;
   }
 
@@ -303,7 +351,11 @@ canvas.addEventListener("pointerup", (e) => {
   } else if (pending.kind === "hold") {
     store.addHold(pending.column, pending.startTime, pending.currentTime);
   }
-  // move/box already applied incrementally.
+  // move/resize/box were applied incrementally; close any open drag batch.
+  if (dragBatch) {
+    store.endBatch();
+    dragBatch = false;
+  }
   pending = null;
 });
 
@@ -722,6 +774,59 @@ function resetOnsets(): void {
   showBeats.checked = false;
   beatsStatus.hidden = true;
 }
+
+// ---------------------------------------------------------------------------
+// Auto-align: set the BPM grid's offset so beat lines land on detected beats
+// ---------------------------------------------------------------------------
+const alignBtn = $("#btn-align") as HTMLButtonElement;
+alignBtn.addEventListener("click", async () => {
+  const buffer = audio.audioBuffer;
+  if (!buffer) { alert("Load audio first."); return; }
+  alignBtn.disabled = true;
+  beatsStatus.hidden = false;
+  beatsStatus.textContent = "Aligning grid to the beats…";
+  try {
+    // Make sure we have beats to align to.
+    if (onsets.length === 0) onsets = detectOnsets(buffer);
+    if (onsets.length === 0) {
+      beatsStatus.textContent = "Couldn't find clear beats to align to.";
+      return;
+    }
+    showOnsets = true;
+    showBeats.checked = true;
+
+    // Use an existing BPM if there is one; otherwise auto-detect it.
+    const reds = store.beatmap.timingPoints
+      .map((tp, i) => ({ tp, i }))
+      .filter((x) => x.tp.uninherited);
+    let bpm: number;
+    if (reds.length > 0) {
+      bpm = reds[0].tp.bpm;
+    } else {
+      const r = await detectTempo(buffer);
+      bpm = r.bpm;
+    }
+
+    const offset = alignOffsetToOnsets(onsets, bpm);
+    if (reds.length > 0) {
+      store.updateTimingPoint(reds[0].i, { time: offset });
+    } else {
+      store.addTimingPoint({
+        time: offset, uninherited: true, bpm, sv: 1, meter: 4,
+        volume: 100, sampleSet: 0, sampleIndex: 0, effects: 0,
+      });
+    }
+    ($("#t-bpm") as HTMLInputElement).value = bpm.toFixed(2);
+    ($("#t-offset") as HTMLInputElement).value = String(offset);
+    beatsStatus.textContent =
+      `Grid aligned: ${bpm.toFixed(2)} BPM, offset ${offset} ms. ` +
+      `The white beat lines should now sit on the teal beats.`;
+  } catch (err) {
+    beatsStatus.textContent = `Align failed: ${(err as Error).message}`;
+  } finally {
+    alignBtn.disabled = false;
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Style / preferences
