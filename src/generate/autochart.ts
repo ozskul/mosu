@@ -70,6 +70,13 @@ export interface GenerateOptions {
   lnAmount?: number;
   /** Chord/jump frequency multiplier (0 = none, 2 = lots). Default 1. */
   chordAmount?: number;
+  /**
+   * Song-intensity lookup (0..1) used to vary difficulty with the music —
+   * denser/harder on loud parts (drops), calmer on quiet parts. Omit to disable.
+   */
+  intensityAt?: (timeMs: number) => number;
+  /** How strongly intensity affects the chart, 0..1. Default 0.6. */
+  intensityStrength?: number;
   /** PRNG seed for reproducibility. */
   seed?: number;
 }
@@ -98,7 +105,13 @@ export function generateChart(
   const density = clamp(opts.density ?? 1, 0.3, 1.6);
   const longNotes = opts.longNotes ?? true;
   const lnChance = clamp(preset.lnChance * (opts.lnAmount ?? 1), 0, 0.95);
-  const chordChance = clamp(preset.chordChance * (opts.chordAmount ?? 1), 0, 0.95);
+  const baseChord = clamp(preset.chordChance * (opts.chordAmount ?? 1), 0, 0.95);
+  const intensityAt = opts.intensityAt;
+  const iStrength = clamp(opts.intensityStrength ?? 0.6, 0, 1);
+  // Intensity factor centred on 1: loud (i=1) up to ~1+strength, quiet down to
+  // ~1-strength. Used to scale density and chord chance with the music.
+  const factorAt = (t: number) =>
+    intensityAt ? 1 + iStrength * (intensityAt(t) - 0.5) * 1.6 : 1;
   const rng = mulberry32((opts.seed ?? 1) >>> 0);
   if (onsets.length === 0) return [];
 
@@ -113,12 +126,13 @@ export function generateChart(
     }
   }
 
-  // 2. Thin by minimum gap (difficulty + density).
+  // 2. Thin by minimum gap (difficulty + density + song intensity).
   const times: number[] = [];
   let lastKept = -Infinity;
   for (const s of snapped) {
     const beat = beatLengthFromBpm(activeBpmPoint(timingPoints, s).bpm);
-    const minGap = (preset.minGapBeats * beat) / density;
+    // Louder sections shrink the gap (more notes); quiet sections widen it.
+    const minGap = (preset.minGapBeats * beat) / (density * Math.max(0.35, factorAt(s)));
     if (s - lastKept >= minGap - 1) {
       times.push(s);
       lastKept = s;
@@ -132,6 +146,8 @@ export function generateChart(
     const t = times[i];
     const next = times[i + 1];
 
+    // More chords/jumps during intense parts.
+    const chordChance = clamp(baseChord * factorAt(t), 0, 0.97);
     let size = 1;
     if (keys > 1 && rng() < chordChance) {
       size = 2;

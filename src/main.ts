@@ -22,6 +22,12 @@ import { collectExportIssues, describeIssues } from "./osu/validate.ts";
 import { shiftBeatmap } from "./osu/shift.ts";
 import { encodeWav } from "./audio/wav.ts";
 import {
+  computeIntensity,
+  intensityAt,
+  findDrops,
+  type IntensityEnvelope,
+} from "./audio/intensity.ts";
+import {
   saveDocument,
   loadDocument,
   saveAudio,
@@ -69,6 +75,9 @@ let testStartMs = 0;
 let onsets: number[] = [];
 let showOnsets = false;
 let muted = false;
+/** Song loudness envelope + detected drops (computed when audio loads). */
+let intensityEnv: IntensityEnvelope | null = null;
+let drops: number[] = [];
 /** Editor-only "map start" position (ms) for test play; null = use playhead. */
 let mapStartMs: number | null = null;
 
@@ -196,6 +205,12 @@ function drawOverview(): void {
     for (const o of store.beatmap.hitObjects) {
       const x = (o.time / dur) * W;
       ctx.fillRect(x, H - 4, 1, 4);
+    }
+    // Detected drops (where the song gets intense).
+    ctx.fillStyle = "rgba(178,107,255,0.85)";
+    for (const d of drops) {
+      const x = (d / dur) * W;
+      ctx.fillRect(x - 1, 0, 2, H);
     }
     // Preview-point flag.
     const prev = store.beatmap.general.previewTime;
@@ -604,6 +619,7 @@ async function handleFile(file: File): Promise<void> {
         await saveAudio(contents.audioBytes);
         rebuildPeaks();
         resetOnsets();
+        ensureIntensity();
       }
       if (contents.backgroundBytes && contents.backgroundFilename) {
         setBackground(contents.backgroundBytes, contents.backgroundFilename);
@@ -628,6 +644,7 @@ async function handleFile(file: File): Promise<void> {
       await saveAudio(bytes);
       rebuildPeaks();
       resetOnsets();
+      ensureIntensity();
       onLoaded();
     }
   } catch (err) {
@@ -654,58 +671,55 @@ function passesExportCheck(maps: Beatmap[]): boolean {
   return confirm(`${head}\n\n${describeIssues(issues)}\n\nExport anyway?`);
 }
 
+/**
+ * When a map-start marker is set (and audio is loaded), exports begin there:
+ * the audio is trimmed and every difficulty is shifted to the new 0:00. Keeps a
+ * ~2s run-up before the first notes. Returns null when no trim should happen.
+ */
+function startTrim(): { delta: number; trimFromMs: number; wavName: string } | null {
+  if (mapStartMs == null || !audio.audioBuffer) return null;
+  const trimFromMs = Math.max(0, mapStartMs - 2000);
+  if (trimFromMs <= 0) return null;
+  const wavName =
+    `${sanitizeName(`${store.beatmap.metadata.artist} - ${store.beatmap.metadata.title}`)} (from start).wav`;
+  return { delta: -trimFromMs, trimFromMs, wavName };
+}
+
 function downloadOsu(): void {
-  // Exports just the active difficulty.
-  if (!passesExportCheck([store.beatmap])) return;
-  const text = serializeBeatmap(store.beatmap);
-  triggerDownload(new Blob([text], { type: "text/plain" }), osuFileName(store.beatmap));
+  // Exports the active difficulty (shifted to the map start if one is set).
+  const trim = startTrim();
+  const map = trim ? shiftBeatmap(store.beatmap, trim.delta) : store.beatmap;
+  if (!passesExportCheck([map])) return;
+  const text = serializeBeatmap(map);
+  triggerDownload(new Blob([text], { type: "text/plain" }), osuFileName(map));
   store.markSaved();
 }
 
 function downloadOsz(): void {
-  // Exports the whole set (every difficulty) as one mapset.
+  // Exports the whole set; if a map start is set, trims the audio + shifts.
   commitActive();
   syncSharedMetadata(store.beatmap, difficulties);
-  if (!passesExportCheck(difficulties)) return;
+  const trim = startTrim();
+
+  let maps = difficulties;
+  let audioForZip = audioBytes;
+  if (trim && audio.audioBuffer) {
+    maps = difficulties.map((d) => {
+      const s = shiftBeatmap(d, trim.delta);
+      s.general.audioFilename = trim.wavName;
+      return s;
+    });
+    audioForZip = encodeWav(audio.audioBuffer, trim.trimFromMs / 1000, audio.audioBuffer.duration);
+  }
+
+  if (!passesExportCheck(maps)) return;
   const extra: Record<string, Uint8Array> = {};
-  const bgName = store.beatmap.general.backgroundFilename;
+  const bgName = maps[0].general.backgroundFilename;
   if (bgName && bgBytes) extra[bgName] = bgBytes;
-  const blob = buildOsz(difficulties, audioBytes, extra);
-  triggerDownload(blob, oszFileName(store.beatmap));
+  const blob = buildOsz(maps, audioForZip, extra);
+  const fname = trim ? oszFileName(maps[0]).replace(/\.osz$/i, " (from start).osz") : oszFileName(maps[0]);
+  triggerDownload(blob, fname);
   store.markSaved();
-}
-
-/**
- * Export an .osz whose audio is trimmed to begin at the map-start marker, with
- * every note/timing shifted to match — so the map actually begins there when
- * played in osu! (which always starts the song at 0:00).
- */
-function downloadOszFromStart(): void {
-  if (mapStartMs == null) { alert("Set a map start first (Song tab → Set start to playhead)."); return; }
-  const buffer = audio.audioBuffer;
-  if (!buffer || !audioBytes) { alert("Load audio first."); return; }
-  commitActive();
-  syncSharedMetadata(store.beatmap, difficulties);
-
-  // Keep a ~2s run-up of audio before the first notes.
-  const lead = 2000;
-  const trimFromMs = Math.max(0, mapStartMs - lead);
-  const delta = -trimFromMs;
-
-  const wavName = `${sanitizeName(`${store.beatmap.metadata.artist} - ${store.beatmap.metadata.title}`)} (from start).wav`;
-  const shifted = difficulties.map((d) => {
-    const s = shiftBeatmap(d, delta);
-    s.general.audioFilename = wavName;
-    return s;
-  });
-  if (!passesExportCheck(shifted)) return;
-
-  const wav = encodeWav(buffer, trimFromMs / 1000, buffer.duration);
-  const extra: Record<string, Uint8Array> = {};
-  const bgName = shifted[0].general.backgroundFilename;
-  if (bgName && bgBytes) extra[bgName] = bgBytes;
-  const blob = buildOsz(shifted, wav, extra);
-  triggerDownload(blob, oszFileName(shifted[0]).replace(/\.osz$/i, " (from start).osz"));
 }
 
 function sanitizeName(name: string): string {
@@ -994,7 +1008,6 @@ $("#btn-start-clear").addEventListener("click", () => {
   updateStartLabel();
   scheduleSave();
 });
-$("#btn-export-start").addEventListener("click", () => downloadOszFromStart());
 
 // Preview point ("where the song-select snippet starts") — set without typing.
 $("#btn-preview-set").addEventListener("click", () => {
@@ -1148,6 +1161,15 @@ function resetOnsets(): void {
   showOnsets = false;
   showBeats.checked = false;
   beatsStatus.hidden = true;
+  intensityEnv = null;
+  drops = [];
+}
+
+/** Compute the loudness envelope + drops for the loaded track (cached). */
+function ensureIntensity(): void {
+  if (intensityEnv || !audio.audioBuffer) return;
+  intensityEnv = computeIntensity(audio.audioBuffer);
+  drops = findDrops(intensityEnv);
 }
 
 // ---------------------------------------------------------------------------
@@ -1214,16 +1236,20 @@ const genLnAmt = $("#gen-ln-amt") as HTMLInputElement;
 const genLnAmtVal = $("#gen-ln-amt-val");
 const genChord = $("#gen-chord") as HTMLInputElement;
 const genChordVal = $("#gen-chord-val");
+const genFollow = $("#gen-follow") as HTMLInputElement;
+const genIntensity = $("#gen-intensity") as HTMLInputElement;
+const genIntensityVal = $("#gen-intensity-val");
 const genStatus = $("#gen-status");
 
 const renderGenVals = () => {
   genDensityVal.textContent = `${Number(genDensity.value).toFixed(2)}×`;
   genLnAmtVal.textContent = `${Number(genLnAmt.value).toFixed(2)}×`;
   genChordVal.textContent = `${Number(genChord.value).toFixed(2)}×`;
+  genIntensityVal.textContent = `${Math.round(Number(genIntensity.value) * 100)}%`;
 };
-genDensity.addEventListener("input", renderGenVals);
-genLnAmt.addEventListener("input", renderGenVals);
-genChord.addEventListener("input", renderGenVals);
+[genDensity, genLnAmt, genChord, genIntensity].forEach((el) =>
+  el.addEventListener("input", renderGenVals),
+);
 renderGenVals();
 
 function genSetStatus(msg: string): void {
@@ -1264,6 +1290,8 @@ function levelLabel(level: DifficultyLevel): string {
 }
 
 function makeNotes(level: DifficultyLevel) {
+  ensureIntensity();
+  const follow = genFollow.checked && intensityEnv != null;
   return generateChart(onsets, store.beatmap.timingPoints, {
     keyCount: store.keyCount,
     level,
@@ -1271,6 +1299,8 @@ function makeNotes(level: DifficultyLevel) {
     longNotes: genLn.checked,
     lnAmount: Number(genLnAmt.value),
     chordAmount: Number(genChord.value),
+    intensityAt: follow ? (ms) => intensityAt(intensityEnv!, ms) : undefined,
+    intensityStrength: Number(genIntensity.value),
     seed: (Math.random() * 0xffffffff) >>> 0,
   });
 }
@@ -1487,6 +1517,7 @@ async function restore(): Promise<void> {
       try {
         await audio.load(toArrayBuffer(bytes));
         rebuildPeaks();
+        ensureIntensity();
         dropHint.hidden = true;
       } catch { /* corrupt audio cache */ }
     }
