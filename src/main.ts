@@ -19,6 +19,8 @@ import { serializeBeatmap } from "./osu/serializer.ts";
 import { buildOsz, readOsz, osuFileName, oszFileName } from "./osu/osz.ts";
 import { parseBeatmap } from "./osu/parser.ts";
 import { collectExportIssues, describeIssues } from "./osu/validate.ts";
+import { shiftBeatmap } from "./osu/shift.ts";
+import { encodeWav } from "./audio/wav.ts";
 import {
   saveDocument,
   loadDocument,
@@ -673,6 +675,43 @@ function downloadOsz(): void {
   store.markSaved();
 }
 
+/**
+ * Export an .osz whose audio is trimmed to begin at the map-start marker, with
+ * every note/timing shifted to match — so the map actually begins there when
+ * played in osu! (which always starts the song at 0:00).
+ */
+function downloadOszFromStart(): void {
+  if (mapStartMs == null) { alert("Set a map start first (Song tab → Set start to playhead)."); return; }
+  const buffer = audio.audioBuffer;
+  if (!buffer || !audioBytes) { alert("Load audio first."); return; }
+  commitActive();
+  syncSharedMetadata(store.beatmap, difficulties);
+
+  // Keep a ~2s run-up of audio before the first notes.
+  const lead = 2000;
+  const trimFromMs = Math.max(0, mapStartMs - lead);
+  const delta = -trimFromMs;
+
+  const wavName = `${sanitizeName(`${store.beatmap.metadata.artist} - ${store.beatmap.metadata.title}`)} (from start).wav`;
+  const shifted = difficulties.map((d) => {
+    const s = shiftBeatmap(d, delta);
+    s.general.audioFilename = wavName;
+    return s;
+  });
+  if (!passesExportCheck(shifted)) return;
+
+  const wav = encodeWav(buffer, trimFromMs / 1000, buffer.duration);
+  const extra: Record<string, Uint8Array> = {};
+  const bgName = shifted[0].general.backgroundFilename;
+  if (bgName && bgBytes) extra[bgName] = bgBytes;
+  const blob = buildOsz(shifted, wav, extra);
+  triggerDownload(blob, oszFileName(shifted[0]).replace(/\.osz$/i, " (from start).osz"));
+}
+
+function sanitizeName(name: string): string {
+  return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "").trim() || "audio";
+}
+
 // ---------------------------------------------------------------------------
 // Background / cover image
 // ---------------------------------------------------------------------------
@@ -955,6 +994,7 @@ $("#btn-start-clear").addEventListener("click", () => {
   updateStartLabel();
   scheduleSave();
 });
+$("#btn-export-start").addEventListener("click", () => downloadOszFromStart());
 
 // Preview point ("where the song-select snippet starts") — set without typing.
 $("#btn-preview-set").addEventListener("click", () => {
