@@ -24,7 +24,13 @@ import {
   saveAudio,
   loadAudio,
 } from "./state/persistence.ts";
-import { createEmptyBeatmap, isHold, type HitObject } from "./types.ts";
+import { isHold, type Beatmap, type HitObject } from "./types.ts";
+import {
+  syncSharedMetadata,
+  blankDifficultyFrom,
+  duplicateDifficulty,
+  emptySet,
+} from "./state/difficulties.ts";
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -44,6 +50,12 @@ let testStartMs = 0;
 /** Detected onset times (ms) and whether to draw them on the chart. */
 let onsets: number[] = [];
 let showOnsets = false;
+let muted = false;
+
+// The difficulty set: every difficulty shares the same audio. The store always
+// edits `difficulties[activeIndex]`; switching loads a different one.
+let difficulties: Beatmap[] = [store.beatmap];
+let activeIndex = 0;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -92,31 +104,36 @@ function frame(): void {
     requestAnimationFrame(frame);
     return;
   }
-  renderer.resize();
-  const H = renderer.cssHeight;
-  vp.judgeY = H - 90;
+  // A bad frame must never freeze the editor: catch, log, keep looping.
+  try {
+    renderer.resize();
+    const H = renderer.cssHeight;
+    vp.judgeY = H - 90;
 
-  handleMetronome();
+    handleMetronome();
 
-  renderer.render(
-    {
-      beatmap: store.beatmap,
-      selection: store.selection,
-      currentTime: currentTime(),
-      divisor,
-      skin: settings.get().noteSkin,
-      onsets: showOnsets ? onsets : null,
-      pendingHold: pending?.kind === "hold" ? {
-        column: pending.column,
-        startTime: pending.startTime,
-        endTime: pending.currentTime,
-      } : null,
-      hoverColumn,
-      playMode: false,
-    },
-    vp,
-  );
-  drawOverview();
+    renderer.render(
+      {
+        beatmap: store.beatmap,
+        selection: store.selection,
+        currentTime: currentTime(),
+        divisor,
+        skin: settings.get().noteSkin,
+        onsets: showOnsets ? onsets : null,
+        pendingHold: pending?.kind === "hold" ? {
+          column: pending.column,
+          startTime: pending.startTime,
+          endTime: pending.currentTime,
+        } : null,
+        hoverColumn,
+        playMode: false,
+      },
+      vp,
+    );
+    drawOverview();
+  } catch (err) {
+    console.error("[mosu] editor frame error (recovered):", err);
+  }
   requestAnimationFrame(frame);
 }
 
@@ -412,6 +429,12 @@ canvas.addEventListener(
 // ---------------------------------------------------------------------------
 window.addEventListener("keydown", (e) => {
   if (player) return; // the immersive player handles its own keys (Esc, R, lanes)
+  // Ctrl/Cmd+S saves the whole mapset (.osz) — works even while typing in a field.
+  if ((e.ctrlKey || e.metaKey) && e.code === "KeyS") {
+    e.preventDefault();
+    if (audio.isLoaded) downloadOsz();
+    return;
+  }
   const target = e.target as HTMLElement;
   if (target && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA")) {
     return; // don't hijack form typing
@@ -486,7 +509,7 @@ $("#btn-redo").addEventListener("click", () => store.redo());
 $("#btn-test").addEventListener("click", () => (player ? exitTestPlay() : startTestPlay()));
 $("#btn-new").addEventListener("click", () => {
   if (store.dirty && !confirm("Discard unsaved changes and start a new beatmap?")) return;
-  store.loadBeatmap(createEmptyBeatmap(4));
+  loadSet(emptySet(4), 0);
   keysSel.value = "4";
   syncPanels();
 });
@@ -533,7 +556,7 @@ async function handleFile(file: File): Promise<void> {
     if (name.endsWith(".osz")) {
       const buf = new Uint8Array(await file.arrayBuffer());
       const contents = readOsz(buf);
-      store.loadBeatmap(contents.beatmap);
+      loadSet(contents.beatmaps, 0);
       if (contents.audioBytes) {
         audioBytes = contents.audioBytes;
         await audio.load(toArrayBuffer(contents.audioBytes));
@@ -544,7 +567,7 @@ async function handleFile(file: File): Promise<void> {
       onLoaded();
     } else if (name.endsWith(".osu")) {
       const text = await file.text();
-      store.loadBeatmap(parseBeatmap(text));
+      loadSet([parseBeatmap(text)], 0);
       onLoaded();
     } else {
       // Treat as audio.
@@ -571,13 +594,17 @@ function onLoaded(): void {
 // Export
 // ---------------------------------------------------------------------------
 function downloadOsu(): void {
+  // Exports just the active difficulty.
   const text = serializeBeatmap(store.beatmap);
   triggerDownload(new Blob([text], { type: "text/plain" }), osuFileName(store.beatmap));
   store.markSaved();
 }
 
 function downloadOsz(): void {
-  const blob = buildOsz(store.beatmap, audioBytes);
+  // Exports the whole set (every difficulty) as one mapset.
+  commitActive();
+  syncSharedMetadata(store.beatmap, difficulties);
+  const blob = buildOsz(difficulties, audioBytes);
   triggerDownload(blob, oszFileName(store.beatmap));
   store.markSaved();
 }
@@ -626,6 +653,90 @@ function exitTestPlay(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Difficulty set (multiple difficulties sharing one song)
+// ---------------------------------------------------------------------------
+/** Keep the array slot pointing at the live edited beatmap. */
+function commitActive(): void {
+  difficulties[activeIndex] = store.beatmap;
+}
+
+function switchDifficulty(index: number): void {
+  if (index === activeIndex || index < 0 || index >= difficulties.length) return;
+  commitActive();
+  // Propagate shared song metadata from the current diff to the rest.
+  syncSharedMetadata(store.beatmap, difficulties);
+  activeIndex = index;
+  store.loadBeatmap(difficulties[index]); // clears history for the new diff
+  renderDiffList();
+}
+
+function addDifficulty(duplicate: boolean): void {
+  commitActive();
+  syncSharedMetadata(store.beatmap, difficulties);
+  const versions = difficulties.map((d) => d.metadata.version);
+  const created = duplicate
+    ? duplicateDifficulty(store.beatmap, versions)
+    : blankDifficultyFrom(store.beatmap, versions);
+  difficulties.push(created);
+  activeIndex = difficulties.length - 1;
+  store.loadBeatmap(created);
+  renderDiffList();
+  scheduleSave();
+}
+
+function deleteDifficulty(index: number): void {
+  if (difficulties.length <= 1) {
+    alert("A mapset needs at least one difficulty.");
+    return;
+  }
+  const name = difficulties[index].metadata.version || "Untitled";
+  if (!confirm(`Delete difficulty "${name}"? This can't be undone.`)) return;
+  commitActive();
+  difficulties.splice(index, 1);
+  if (activeIndex >= difficulties.length) activeIndex = difficulties.length - 1;
+  else if (index < activeIndex) activeIndex -= 1;
+  store.loadBeatmap(difficulties[activeIndex]);
+  renderDiffList();
+  scheduleSave();
+}
+
+/** Replace the whole set (import / new / restore). */
+function loadSet(diffs: Beatmap[], index = 0): void {
+  difficulties = diffs.length ? diffs : emptySet();
+  activeIndex = Math.max(0, Math.min(index, difficulties.length - 1));
+  store.loadBeatmap(difficulties[activeIndex]);
+  renderDiffList();
+}
+
+function renderDiffList(): void {
+  const list = $("#diff-list");
+  list.innerHTML = "";
+  difficulties.forEach((d, i) => {
+    const row = document.createElement("div");
+    row.className = `diff-row${i === activeIndex ? " active" : ""}`;
+    const keys = d.difficulty.keyCount;
+    const notes = d.hitObjects.length;
+    row.innerHTML =
+      `<span class="name">${escapeHtml(d.metadata.version || "(unnamed)")}</span>` +
+      `<span class="meta">${keys}K · ${notes}</span>` +
+      `<button class="del" title="Delete difficulty">✕</button>`;
+    row.querySelector(".name")!.addEventListener("click", () => switchDifficulty(i));
+    row.querySelector(".meta")!.addEventListener("click", () => switchDifficulty(i));
+    row.querySelector(".del")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteDifficulty(i);
+    });
+    list.appendChild(row);
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Side panel binding
 // ---------------------------------------------------------------------------
 document.querySelectorAll<HTMLButtonElement>(".tabs button").forEach((btn) => {
@@ -659,6 +770,10 @@ bindInput("#diff-od", () => String(store.beatmap.difficulty.od), (v) => store.up
 keysSel.addEventListener("change", () => {
   store.updateDifficulty({ keyCount: parseInt(keysSel.value, 10) });
 });
+
+// Difficulty manager
+$("#btn-diff-add").addEventListener("click", () => addDifficulty(false));
+$("#btn-diff-dup").addEventListener("click", () => addDifficulty(true));
 
 // Preview point ("where the song-select snippet starts") — set without typing.
 $("#btn-preview-set").addEventListener("click", () => {
@@ -875,7 +990,18 @@ function bindVolume(sel: string, valSel: string, key: "musicVolume" | "hitsoundV
   (el as any)._syncPref = () => { el.value = String(settings.get()[key]); render(settings.get()[key]); };
 }
 
-bindVolume("#pref-music", "#val-music", "musicVolume", (v) => audio.setVolume(v));
+bindVolume("#pref-music", "#val-music", "musicVolume", (v) => {
+  if (!muted) audio.setVolume(v);
+});
+
+// Mute toggle (toolbar).
+const muteBtn = $("#btn-mute") as HTMLButtonElement;
+muteBtn.addEventListener("click", () => {
+  muted = !muted;
+  audio.setVolume(muted ? 0 : settings.get().musicVolume);
+  muteBtn.textContent = muted ? "🔇" : "🔊";
+  muteBtn.classList.toggle("danger", muted);
+});
 bindVolume("#pref-hitsound", "#val-hitsound", "hitsoundVolume");
 bindVolume("#pref-metronome", "#val-metronome", "metronomeVolume");
 bindVolume("#pref-playscroll", "#val-playscroll", "playScrollSpeed");
@@ -913,6 +1039,7 @@ function syncPanels(): void {
   $("#dirty-flag").hidden = !store.dirty;
 
   renderTimingList();
+  renderDiffList();
 }
 
 function songLength(): number {
@@ -985,7 +1112,8 @@ let saveTimer: number | null = null;
 function scheduleSave(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    saveDocument(store.beatmap, store.beatmap.general.audioFilename);
+    commitActive();
+    saveDocument(difficulties, activeIndex, store.beatmap.general.audioFilename);
   }, 600);
 }
 
@@ -999,7 +1127,7 @@ window.addEventListener("beforeunload", (e) => {
 async function restore(): Promise<void> {
   const doc = loadDocument();
   if (doc) {
-    store.loadBeatmap(doc.beatmap);
+    loadSet(doc.difficulties, doc.activeIndex);
     const bytes = await loadAudio();
     if (bytes) {
       audioBytes = bytes;

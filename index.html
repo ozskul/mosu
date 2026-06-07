@@ -26,6 +26,7 @@
         </div>
         <div class="tb-group">
           <button id="btn-play" title="Play / Pause (Space)">▶</button>
+          <button id="btn-mute" title="Mute / unmute audio">🔊</button>
           <button id="btn-test" title="Test play (immersive)" class="accent">▶ Test</button>
         </div>
         <div class="tb-group">
@@ -133,6 +134,14 @@
 
             <!-- Setup / difficulty -->
             <div class="tab" data-tab="diff" hidden>
+              <h3>Difficulties</h3>
+              <p class="muted">All difficulties share this song &amp; metadata. Rename the active one with “Difficulty name” in the Song tab.</p>
+              <div class="list" id="diff-list"></div>
+              <div class="field-row">
+                <button id="btn-diff-add" class="full" title="Add a new empty difficulty (same song)">+ Add</button>
+                <button id="btn-diff-dup" class="full" title="Duplicate the active difficulty (notes included)">Duplicate</button>
+              </div>
+              <hr />
               <label>Keys (columns)
                 <select id="diff-keys"></select>
               </label>
@@ -189,13 +198,19 @@
                 <li><b>Space</b> play / pause</li>
                 <li><b>↑ / ↓</b> or <b>scroll</b> move by one snap</li>
                 <li><b>Ctrl+Z / Ctrl+Y</b> undo / redo</li>
+                <li><b>Ctrl+S</b> save the mapset (.osz)</li>
                 <li><b>1–9</b> place a note in that column at the playhead</li>
               </ul>
               <h3>Test play</h3>
               <ul class="help">
                 <li><b>▶ Test</b> launches immersive play from the playhead</li>
                 <li>Default keys auto-map per column (e.g. 4K = D F J K)</li>
-                <li><b>R</b> retry · <b>Esc</b> back to the editor</li>
+                <li><b>P</b> pause · <b>R</b> retry · <b>Esc</b> back to the editor</li>
+              </ul>
+              <h3>Difficulties</h3>
+              <ul class="help">
+                <li><b>Setup tab</b> → Add / Duplicate / switch / delete</li>
+                <li>All diffs share the song; <b>.osz</b> exports them together</li>
               </ul>
               <p class="muted">mosu! is free &amp; open source (MIT).</p>
             </div>

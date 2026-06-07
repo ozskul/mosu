@@ -22,15 +22,28 @@ export function oszFileName(map: Beatmap): string {
 }
 
 /**
- * Create an .osz blob containing the given beatmap and its audio.
- * `audioBytes` should be the raw bytes of the audio file referenced by
- * `map.general.audioFilename`.
+ * Create an .osz blob containing one or more difficulties (each a `.osu`) and
+ * the shared audio. `audioBytes` should be the raw bytes of the audio file the
+ * difficulties reference.
+ *
+ * Each difficulty is written under a filename that includes its Version, so
+ * multiple difficulties land as a single mapset in osu!. If two difficulties
+ * share a Version name we de-duplicate the filename so neither is dropped.
  */
-export function buildOsz(map: Beatmap, audioBytes: Uint8Array | null): Blob {
+export function buildOsz(maps: Beatmap[], audioBytes: Uint8Array | null): Blob {
+  if (maps.length === 0) throw new Error("No difficulties to export.");
   const files: Record<string, Uint8Array> = {};
-  files[osuFileName(map)] = strToU8(serializeBeatmap(map));
+  const used = new Set<string>();
+  for (const map of maps) {
+    let name = osuFileName(map);
+    if (used.has(name.toLowerCase())) {
+      name = name.replace(/\.osu$/i, ` ~${used.size + 1}.osu`);
+    }
+    used.add(name.toLowerCase());
+    files[name] = strToU8(serializeBeatmap(map));
+  }
   if (audioBytes && audioBytes.length > 0) {
-    files[map.general.audioFilename] = audioBytes;
+    files[maps[0].general.audioFilename] = audioBytes;
   }
   const zipped = zipSync(files, { level: 6 });
   // Copy into a fresh ArrayBuffer so Blob doesn't alias the underlying buffer.
@@ -38,24 +51,26 @@ export function buildOsz(map: Beatmap, audioBytes: Uint8Array | null): Blob {
 }
 
 export interface OszContents {
-  /** The first parsed difficulty (the editor is single-difficulty for now). */
-  beatmap: Beatmap;
+  /** All parsed difficulties, in archive order. */
+  beatmaps: Beatmap[];
   audioFilename: string | null;
   audioBytes: Uint8Array | null;
 }
 
-/** Read an .osz archive, returning the first difficulty and its audio. */
+/** Read an .osz archive, returning every difficulty and the shared audio. */
 export function readOsz(data: Uint8Array): OszContents {
   const entries = unzipSync(data);
-  const osuName = Object.keys(entries).find((n) => n.toLowerCase().endsWith(".osu"));
-  if (!osuName) {
+  const osuNames = Object.keys(entries).filter((n) =>
+    n.toLowerCase().endsWith(".osu"),
+  );
+  if (osuNames.length === 0) {
     throw new Error("No .osu difficulty found inside the .osz archive.");
   }
-  const beatmap = parseBeatmap(strFromU8(entries[osuName]));
+  const beatmaps = osuNames.map((n) => parseBeatmap(strFromU8(entries[n])));
 
   let audioFilename: string | null = null;
   let audioBytes: Uint8Array | null = null;
-  const wanted = beatmap.general.audioFilename.toLowerCase();
+  const wanted = beatmaps[0].general.audioFilename.toLowerCase();
   for (const name of Object.keys(entries)) {
     if (name.toLowerCase() === wanted) {
       audioFilename = name;
@@ -74,7 +89,7 @@ export function readOsz(data: Uint8Array): OszContents {
     }
   }
 
-  return { beatmap, audioFilename, audioBytes };
+  return { beatmaps, audioFilename, audioBytes };
 }
 
 function sanitize(name: string): string {
