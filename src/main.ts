@@ -831,15 +831,60 @@ function renderDiffList(): void {
     row.innerHTML =
       `<span class="name">${escapeHtml(d.metadata.version || "(unnamed)")}</span>` +
       `<span class="meta">${keys}K · ${notes}</span>` +
+      `<button class="rename" title="Rename difficulty">✎</button>` +
       `<button class="del" title="Delete difficulty">✕</button>`;
-    row.querySelector(".name")!.addEventListener("click", () => switchDifficulty(i));
+    const nameEl = row.querySelector(".name") as HTMLElement;
+    nameEl.addEventListener("click", () => switchDifficulty(i));
     row.querySelector(".meta")!.addEventListener("click", () => switchDifficulty(i));
+    row.querySelector(".rename")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      beginRename(nameEl, i, d.metadata.version);
+    });
     row.querySelector(".del")!.addEventListener("click", (e) => {
       e.stopPropagation();
       deleteDifficulty(i);
     });
     list.appendChild(row);
   });
+}
+
+/** Rename a difficulty's Version. Works for any difficulty, active or not. */
+function renameDifficulty(index: number, newName: string): void {
+  const name = newName.trim();
+  if (!name || difficulties[index]?.metadata.version === name) {
+    renderDiffList();
+    return;
+  }
+  if (index === activeIndex) {
+    store.updateMetadata({ version: name }); // undoable + syncs the Song tab field
+  } else {
+    difficulties[index].metadata.version = name;
+    scheduleSave();
+  }
+  renderDiffList();
+}
+
+/** Turn a row's name into an inline text input for editing. */
+function beginRename(nameEl: HTMLElement, index: number, current: string): void {
+  const input = document.createElement("input");
+  input.className = "diff-rename";
+  input.value = current;
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const commit = (save: boolean) => {
+    if (done) return;
+    done = true;
+    if (save) renameDifficulty(index, input.value);
+    else renderDiffList();
+  };
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); commit(true); }
+    else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+  });
+  input.addEventListener("blur", () => commit(true));
 }
 
 function escapeHtml(s: string): string {
