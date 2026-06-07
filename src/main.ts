@@ -6,6 +6,7 @@ import { Viewport } from "./render/Viewport.ts";
 import { ManiaPlayer } from "./play/ManiaPlayer.ts";
 import { SettingsStore } from "./state/settings.ts";
 import { detectTempo } from "./audio/tempo.ts";
+import { detectOnsets } from "./audio/onsets.ts";
 import {
   SNAP_DIVISORS,
   snapTime,
@@ -39,6 +40,9 @@ let metronomeOn = false;
 let lastMetronomeBeat = -1;
 let player: ManiaPlayer | null = null;
 let testStartMs = 0;
+/** Detected onset times (ms) and whether to draw them on the chart. */
+let onsets: number[] = [];
+let showOnsets = false;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -100,6 +104,7 @@ function frame(): void {
       currentTime: currentTime(),
       divisor,
       skin: settings.get().noteSkin,
+      onsets: showOnsets ? onsets : null,
       pendingHold: pending?.kind === "hold" ? {
         column: pending.column,
         startTime: pending.startTime,
@@ -468,6 +473,7 @@ async function handleFile(file: File): Promise<void> {
         await audio.load(toArrayBuffer(contents.audioBytes));
         await saveAudio(contents.audioBytes);
         rebuildPeaks();
+        resetOnsets();
       }
       onLoaded();
     } else if (name.endsWith(".osu")) {
@@ -482,6 +488,7 @@ async function handleFile(file: File): Promise<void> {
       await audio.load(toArrayBuffer(bytes));
       await saveAudio(bytes);
       rebuildPeaks();
+      resetOnsets();
       onLoaded();
     }
   } catch (err) {
@@ -669,6 +676,52 @@ detectBtn.addEventListener("click", async () => {
     detectBtn.disabled = false;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Beat (onset) detection — draws every transient on the chart as a guide
+// ---------------------------------------------------------------------------
+const detectBeatsBtn = $("#btn-detect-beats") as HTMLButtonElement;
+const showBeats = $("#show-beats") as HTMLInputElement;
+const beatsStatus = $("#beats-status");
+
+detectBeatsBtn.addEventListener("click", () => {
+  const buffer = audio.audioBuffer;
+  if (!buffer) { alert("Load audio first."); return; }
+  detectBeatsBtn.disabled = true;
+  beatsStatus.hidden = false;
+  beatsStatus.textContent = "Scanning for beats…";
+  // Defer so the "Scanning…" text paints before the (synchronous) analysis.
+  setTimeout(() => {
+    try {
+      onsets = detectOnsets(buffer);
+      showOnsets = true;
+      showBeats.checked = true;
+      beatsStatus.textContent =
+        `Found ${onsets.length} beats. Teal guides mark where the song hits — ` +
+        `line up your offset and notes to them.`;
+    } catch (err) {
+      beatsStatus.textContent = `Beat detection failed: ${(err as Error).message}`;
+    } finally {
+      detectBeatsBtn.disabled = false;
+    }
+  }, 20);
+});
+
+showBeats.addEventListener("change", () => {
+  showOnsets = showBeats.checked;
+  if (showOnsets && onsets.length === 0) {
+    // Nothing detected yet — kick off a detection for convenience.
+    detectBeatsBtn.click();
+  }
+});
+
+/** Discard detected onsets (e.g. when a different track is loaded). */
+function resetOnsets(): void {
+  onsets = [];
+  showOnsets = false;
+  showBeats.checked = false;
+  beatsStatus.hidden = true;
+}
 
 // ---------------------------------------------------------------------------
 // Style / preferences
