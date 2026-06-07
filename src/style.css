@@ -191,6 +191,9 @@ input[type="range"]::-moz-range-thumb {
 .field-row button { white-space: nowrap; }
 hr { border: none; border-top: 1px solid var(--line); margin: 5px 0; width: 100%; }
 .muted { color: var(--muted); font-size: 12px; }
+/* Inline "definition" help text under a control. */
+.def { color: var(--muted); font-size: 11px; line-height: 1.35; margin: -5px 0 0; opacity: 0.82; }
+.def b { color: var(--text); opacity: 0.9; }
 h3 { margin: 6px 0 2px; font-size: 13px; color: var(--text); }
 
 .list { display: flex; flex-direction: column; gap: 5px; }

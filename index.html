@@ -80,18 +80,25 @@
           <div class="tab-body">
             <!-- Metadata -->
             <div class="tab" data-tab="meta">
+              <h3>Metadata</h3>
               <label>Title<input id="meta-title" /></label>
               <label>Artist<input id="meta-artist" /></label>
               <label>Creator<input id="meta-creator" /></label>
               <label>Difficulty name<input id="meta-version" /></label>
               <label>Source<input id="meta-source" /></label>
               <label>Tags<input id="meta-tags" /></label>
-              <label>Background / cover image</label>
+
+              <hr />
+              <h3>Background / cover</h3>
               <img id="bg-thumb" class="bg-thumb" alt="background preview" hidden />
               <div class="field-row">
                 <button id="btn-bg-pick" class="full" title="Choose a background image (JPG/PNG). It's the map's cover in osu! too.">🖼 Choose image</button>
                 <button id="btn-bg-remove" class="danger" title="Remove background" hidden>Remove</button>
               </div>
+              <p class="def">Also doubles as the mapset's cover/thumbnail in osu!. Drag an image onto the playfield to set it.</p>
+
+              <hr />
+              <h3>Playback &amp; start</h3>
               <label>Audio offset (ms)
                 <input id="meta-leadin" type="number" step="1" />
               </label>
@@ -105,11 +112,11 @@
               </div>
               <label>Map start (where Test play begins) <span class="val" id="start-label">— not set</span></label>
               <div class="field-row">
-                <button id="btn-start-set" class="full" title="Test play will begin here, ignoring notes before it">⏱ Set start to playhead</button>
+                <button id="btn-start-set" class="full" title="Test play begins here, and exports start here too (the audio is trimmed automatically)">⏱ Set start to playhead</button>
                 <button id="btn-start-jump" title="Jump the playhead to the start">Jump</button>
                 <button id="btn-start-clear" title="Clear the start marker">Clear</button>
               </div>
-              <button id="btn-export-start" class="full" title="Export an .osz whose audio is trimmed to the map start, so it begins there in osu! too">✂️ Export starting at map start (.osz)</button>
+              <p class="def">With a start set, the top <b>.osu</b>/<b>.osz</b> buttons export from here — the song is trimmed so it begins at this point in osu! too.</p>
             </div>
 
             <!-- Timing -->
@@ -174,6 +181,7 @@
             <div class="tab" data-tab="auto" hidden>
               <h3>Auto-map generator</h3>
               <p class="muted">Builds a chart from the song's beats. Needs audio loaded — it auto-detects the beats &amp; BPM if needed.</p>
+
               <label>Difficulty
                 <select id="gen-diff">
                   <option value="easy">Easy</option>
@@ -183,21 +191,36 @@
                   <option value="expert">Expert</option>
                 </select>
               </label>
+              <p class="def">Overall hardness — sets the base note spacing, chord rate and OD.</p>
+
               <label>Density <span class="val" id="gen-density-val"></span>
                 <input id="gen-density" type="range" min="0.5" max="1.4" step="0.05" value="1" />
               </label>
+              <p class="def">How many of the song's beats become notes. Higher = busier.</p>
+
               <label class="checkbox"><input id="gen-ln" type="checkbox" checked /> Include long notes</label>
               <label>Hold-note amount <span class="val" id="gen-ln-amt-val"></span>
                 <input id="gen-ln-amt" type="range" min="0" max="2" step="0.1" value="1" />
               </label>
+              <p class="def">How often gaps become held (long) notes.</p>
+
               <label>Chords / jumps <span class="val" id="gen-chord-val"></span>
                 <input id="gen-chord" type="range" min="0" max="2" step="0.1" value="1" />
               </label>
+              <p class="def">How often multiple columns are hit at once.</p>
+
+              <hr />
+              <label class="checkbox"><input id="gen-follow" type="checkbox" checked /> Follow song intensity (drops get harder)</label>
+              <label>Intensity strength <span class="val" id="gen-intensity-val"></span>
+                <input id="gen-intensity" type="range" min="0" max="1" step="0.05" value="0.6" />
+              </label>
+              <p class="def">Varies difficulty with the music — denser on loud parts &amp; drops, calmer when quiet. Drops are the purple lines on the timeline.</p>
+
+              <hr />
               <button id="btn-generate" class="full accent">✨ Generate into this difficulty</button>
               <button id="btn-generate-new" class="full">Generate as a new difficulty</button>
-              <hr />
               <button id="btn-generate-spread" class="full">🎚 Generate full spread (Easy → Insane)</button>
-              <p class="muted">Tip: re-run to re-roll the patterns. Generation is one undo step.</p>
+              <p class="def">Re-run to re-roll the patterns. Each generation is a single undo (Ctrl+Z).</p>
               <p id="gen-status" class="muted" hidden></p>
             </div>
 
