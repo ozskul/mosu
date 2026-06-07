@@ -98,6 +98,10 @@ export function serializeBeatmap(map: Beatmap): string {
     // Background event: 0,0,"filename",xOffset,yOffset
     L.push(`0,0,"${map.general.backgroundFilename}",0,0`);
   }
+  if (map.general.videoFilename) {
+    // Video event: Video,startTime,"filename"
+    L.push(`Video,0,"${map.general.videoFilename}"`);
+  }
   L.push("//Break Periods");
   L.push("//Storyboard Layer 0 (Background)");
   L.push("//Storyboard Layer 1 (Fail)");

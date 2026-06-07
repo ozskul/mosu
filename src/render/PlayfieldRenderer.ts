@@ -10,7 +10,7 @@ import { isHold, type Beatmap, type HitObject } from "../types.ts";
 import { gridLines } from "../timing/timing.ts";
 import type { Viewport } from "./Viewport.ts";
 import type { NoteSkin } from "../state/settings.ts";
-import { drawNoteShape, columnColor, roundRect, drawCover, arrowAngle } from "./shapes.ts";
+import { drawNoteShape, columnColor, roundRect, drawCover, arrowAngle, type CoverMedia } from "./shapes.ts";
 
 export interface RenderInput {
   beatmap: Beatmap;
@@ -19,8 +19,8 @@ export interface RenderInput {
   divisor: number;
   /** Shape used to draw notes. */
   skin: NoteSkin;
-  /** Optional background image, drawn dimmed behind the lanes. */
-  background?: HTMLImageElement | null;
+  /** Optional background image/video, drawn dimmed behind the lanes. */
+  background?: CoverMedia | null;
   /** Detected onset times (ms, sorted) to draw as alignment guides. */
   onsets?: readonly number[] | null;
   /** Optional in-progress hold being dragged: column + start/end times. */
@@ -92,7 +92,7 @@ export class PlayfieldRenderer {
     // Playfield background (optional cover image, dimmed for readability).
     ctx.fillStyle = "#11131a";
     ctx.fillRect(0, 0, W, H);
-    if (input.background && input.background.width) {
+    if (input.background) {
       drawCover(ctx, input.background, W, H);
       ctx.fillStyle = "rgba(12,14,20,0.72)";
       ctx.fillRect(0, 0, W, H);

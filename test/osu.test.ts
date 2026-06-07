@@ -121,4 +121,21 @@ describe("round-trip", () => {
     const back = parseBeatmap(text);
     expect(back.general.backgroundFilename).toBe("bg.jpg");
   });
+
+  it("round-trips a background video event", () => {
+    const map = createEmptyBeatmap(4);
+    map.general.backgroundFilename = "bg.jpg";
+    map.general.videoFilename = "clip.mp4";
+    const text = serializeBeatmap(map);
+    expect(text).toContain('Video,0,"clip.mp4"');
+    const back = parseBeatmap(text);
+    expect(back.general.videoFilename).toBe("clip.mp4");
+    expect(back.general.backgroundFilename).toBe("bg.jpg");
+  });
+
+  it("parses a numeric (1,0,..) video event too", () => {
+    const text = serializeBeatmap(createEmptyBeatmap(4))
+      .replace("//Break Periods", '1,0,"v.webm"\n//Break Periods');
+    expect(parseBeatmap(text).general.videoFilename).toBe("v.webm");
+  });
 });

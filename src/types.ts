@@ -19,6 +19,8 @@ export interface GeneralInfo {
    * osu!). Stored in [Events] as a background event. Optional.
    */
   backgroundFilename?: string;
+  /** Background video filename, stored in [Events] as a Video event. Optional. */
+  videoFilename?: string;
 }
 
 export interface Metadata {

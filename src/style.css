@@ -54,7 +54,9 @@ html, body {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
   z-index: 5;
 }
-.brand {
+.brand { display: flex; align-items: center; gap: 9px; user-select: none; }
+.brand-mark { width: 26px; height: 26px; display: block; flex: none; }
+.brand-name {
   font-weight: 800;
   font-size: 21px;
   letter-spacing: -0.5px;
@@ -62,9 +64,13 @@ html, body {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  user-select: none;
 }
-.brand span { -webkit-text-fill-color: var(--accent); }
+.brand-name span { -webkit-text-fill-color: var(--accent); }
+
+/* Icon buttons + inline icons */
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 7px; min-width: 32px; }
+.ico { width: 15px; height: 15px; display: block; }
+.diff-row .icon-btn { padding: 4px 6px; min-width: 0; }
 .tb-group {
   display: flex;
   align-items: center;
@@ -76,6 +82,7 @@ html, body {
 .tb-group label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
 .tb-spacer { flex: 1; }
 .dirty { color: var(--accent); font-size: 12px; animation: pulse 2s ease-in-out infinite; }
+.sel-count { color: var(--accent-2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .gh { color: var(--muted); text-decoration: none; font-size: 12px; transition: color 0.15s; }
 .gh:hover { color: var(--text); }
 

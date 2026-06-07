@@ -3,17 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mosu! — osu!mania beatmap editor</title>
+    <title>mosu! — free online osu!mania beatmap editor &amp; auto-mapper</title>
     <meta
       name="description"
-      content="mosu! is a free, open-source, browser-based osu!mania beatmap editor. Create fully playable beatmaps and export them as .osu / .osz."
+      content="mosu! is a free, open-source, browser-based osu!mania beatmap editor. Map by hand or auto-generate charts that follow the song, test them in an osu!mania-style player, and export ready-to-play .osu / .osz files."
     />
+    <meta name="keywords" content="osu, osu!mania, mania, beatmap editor, beatmap maker, chart maker, auto mapper, rhythm game, online, browser, free, open source, osz, osu file" />
+    <meta name="author" content="mosu!" />
+    <meta name="theme-color" content="#0a0b11" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://mosu-mania.netlify.app/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="mosu!" />
+    <meta property="og:title" content="mosu! — free online osu!mania beatmap editor" />
+    <meta property="og:description" content="Map, auto-generate, test and export osu!mania beatmaps right in your browser. Free and open source." />
+    <meta property="og:url" content="https://mosu-mania.netlify.app/" />
+    <meta property="og:image" content="https://mosu-mania.netlify.app/banner.svg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="mosu! — osu!mania beatmap editor" />
+    <meta name="twitter:description" content="Map, auto-generate, test and export osu!mania beatmaps in your browser." />
+    <meta name="twitter:image" content="https://mosu-mania.netlify.app/banner.svg" />
   </head>
   <body>
     <div id="app">
       <!-- Top toolbar -->
       <header class="toolbar">
-        <div class="brand">mosu<span>!</span></div>
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+            <rect x="3" y="3" width="58" height="58" rx="15" fill="#11131a"/>
+            <rect x="3.5" y="3.5" width="57" height="57" rx="14.5" fill="none" stroke="url(#bg)" stroke-width="3"/>
+            <g fill="url(#bg)">
+              <rect x="13" y="29" width="7" height="11" rx="2.5"/>
+              <rect x="23" y="19" width="7" height="11" rx="2.5"/>
+              <rect x="34" y="33" width="7" height="11" rx="2.5"/>
+              <rect x="44" y="23" width="7" height="11" rx="2.5"/>
+            </g>
+            <rect x="10" y="46" width="44" height="3" rx="1.5" fill="#ffd54f"/>
+            <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5fa2"/><stop offset="1" stop-color="#b05cff"/></linearGradient></defs>
+          </svg>
+          <span class="brand-name">mosu<span>!</span></span>
+        </div>
         <div class="tb-group">
           <button id="btn-new" title="New beatmap">New</button>
           <button id="btn-open" title="Open .osu or .osz">Open</button>
@@ -21,13 +50,17 @@
           <button id="btn-save-osz" title="Download .osz (with audio)">.osz</button>
         </div>
         <div class="tb-group">
-          <button id="btn-undo" title="Undo (Ctrl+Z)" disabled>↶</button>
-          <button id="btn-redo" title="Redo (Ctrl+Y)" disabled>↷</button>
+          <button id="btn-undo" class="icon-btn" title="Undo (Ctrl+Z)" disabled aria-label="Undo">
+            <svg class="ico" viewBox="0 0 16 16"><path d="M6 4 2.5 7.5 6 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 7.5h6.5a3.5 3.5 0 0 1 0 7H7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+          <button id="btn-redo" class="icon-btn" title="Redo (Ctrl+Y)" disabled aria-label="Redo">
+            <svg class="ico" viewBox="0 0 16 16"><path d="M10 4 13.5 7.5 10 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 7.5H6.5a3.5 3.5 0 0 0 0 7H9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
         </div>
         <div class="tb-group">
-          <button id="btn-play" title="Play / Pause (Space)">▶</button>
-          <button id="btn-mute" title="Mute / unmute audio">🔊</button>
-          <button id="btn-test" title="Test play (immersive)" class="accent">▶ Test</button>
+          <button id="btn-play" class="icon-btn" title="Play / Pause (Space)" aria-label="Play"></button>
+          <button id="btn-mute" class="icon-btn" title="Mute / unmute audio" aria-label="Mute"></button>
+          <button id="btn-test" title="Test play" class="accent">Test</button>
         </div>
         <div class="tb-group">
           <label>Snap
@@ -48,7 +81,8 @@
           </label>
         </div>
         <div class="tb-spacer"></div>
-        <div id="dirty-flag" class="dirty" hidden>● unsaved</div>
+        <span id="sel-count" class="sel-count" hidden></span>
+        <div id="dirty-flag" class="dirty" hidden>unsaved</div>
         <a class="gh" href="https://github.com/ozskul/mosu" target="_blank" rel="noopener">GitHub</a>
       </header>
 
@@ -73,7 +107,7 @@
             <button data-tab="timing">Timing</button>
             <button data-tab="diff">Setup</button>
             <button data-tab="auto">Auto</button>
-            <button data-tab="prefs">Style</button>
+            <button data-tab="prefs">Settings</button>
             <button data-tab="help">Help</button>
           </nav>
 
@@ -89,13 +123,15 @@
               <label>Tags<input id="meta-tags" /></label>
 
               <hr />
-              <h3>Background / cover</h3>
-              <img id="bg-thumb" class="bg-thumb" alt="background preview" hidden />
+              <h3>Background &amp; video</h3>
+              <img id="bg-thumb" class="bg-thumb" alt="" hidden />
+              <p id="bg-video-label" class="def" hidden>Background video attached.</p>
               <div class="field-row">
-                <button id="btn-bg-pick" class="full" title="Choose a background image (JPG/PNG). It's the map's cover in osu! too.">🖼 Choose image</button>
+                <button id="btn-bg-pick" class="full" title="Choose a background image (JPG/PNG) — also the cover in osu!">Image…</button>
+                <button id="btn-vid-pick" class="full" title="Choose a background video (MP4/WebM)">Video…</button>
                 <button id="btn-bg-remove" class="danger" title="Remove background" hidden>Remove</button>
               </div>
-              <p class="def">Also doubles as the mapset's cover/thumbnail in osu!. Drag an image onto the playfield to set it.</p>
+              <p class="def">Shown behind the playfield and bundled in the .osz. The image doubles as the cover in osu!. Drag a file onto the playfield to set it.</p>
 
               <hr />
               <h3>Playback &amp; start</h3>
@@ -106,13 +142,13 @@
                 <input id="meta-preview" type="number" step="1" />
               </label>
               <div class="field-row">
-                <button id="btn-preview-set" class="full" title="Set the preview point to the current playhead position">⤓ Set to playhead</button>
+                <button id="btn-preview-set" class="full" title="Set the preview point to the current playhead position">Set to playhead</button>
                 <button id="btn-preview-jump" title="Jump the playhead to the preview point">Jump</button>
                 <button id="btn-preview-clear" title="Clear the preview point (-1)">Clear</button>
               </div>
               <label>Map start (where Test play begins) <span class="val" id="start-label">— not set</span></label>
               <div class="field-row">
-                <button id="btn-start-set" class="full" title="Test play begins here, and exports start here too (the audio is trimmed automatically)">⏱ Set start to playhead</button>
+                <button id="btn-start-set" class="full" title="Test play begins here, and exports start here too (the audio is trimmed automatically)">Set start to playhead</button>
                 <button id="btn-start-jump" title="Jump the playhead to the start">Jump</button>
                 <button id="btn-start-clear" title="Clear the start marker">Clear</button>
               </div>
@@ -122,15 +158,15 @@
             <!-- Timing -->
             <div class="tab" data-tab="timing" hidden>
               <button id="btn-detect" class="full accent" title="Analyse the audio for BPM and offset">
-                ✨ Auto-detect tempo
+                Auto-detect tempo
               </button>
               <p id="detect-status" class="muted" hidden></p>
               <button id="btn-detect-beats" class="full" title="Mark every transient in the song on the chart so you can line notes and timing up to the audio">
-                🥁 Detect beats on chart
+                Detect beats on chart
               </button>
               <label class="checkbox"><input id="show-beats" type="checkbox" /> Show detected beats (teal guides)</label>
               <button id="btn-align" class="full accent" title="Automatically set BPM + offset so the beat grid lines up with the detected beats">
-                🎯 Auto-align grid to beats
+                Auto-align grid to beats
               </button>
               <p id="beats-status" class="muted" hidden></p>
               <hr />
@@ -217,24 +253,16 @@
               <p class="def">Varies difficulty with the music — denser on loud parts &amp; drops, calmer when quiet. Drops are the purple lines on the timeline.</p>
 
               <hr />
-              <button id="btn-generate" class="full accent">✨ Generate into this difficulty</button>
+              <button id="btn-generate" class="full accent">Generate into this difficulty</button>
               <button id="btn-generate-new" class="full">Generate as a new difficulty</button>
-              <button id="btn-generate-spread" class="full">🎚 Generate full spread (Easy → Insane)</button>
+              <button id="btn-generate-spread" class="full">Generate full spread (Easy → Insane)</button>
               <p class="def">Re-run to re-roll the patterns. Each generation is a single undo (Ctrl+Z).</p>
               <p id="gen-status" class="muted" hidden></p>
             </div>
 
             <!-- Style / preferences -->
             <div class="tab" data-tab="prefs" hidden>
-              <label>Note shape
-                <select id="pref-skin">
-                  <option value="bar">Bars</option>
-                  <option value="circle">Circles</option>
-                  <option value="diamond">Diamonds</option>
-                  <option value="arrow">Arrows</option>
-                </select>
-              </label>
-              <hr />
+              <h3>Audio</h3>
               <label>Music volume <span class="val" id="val-music"></span>
                 <input id="pref-music" type="range" min="0" max="1" step="0.01" />
               </label>
@@ -245,8 +273,19 @@
                 <input id="pref-metronome" type="range" min="0" max="1" step="0.01" />
               </label>
               <label class="checkbox"><input id="pref-hitsounds" type="checkbox" /> Play hitsounds in test mode</label>
+
               <hr />
-              <label>Test-play scroll speed <span class="val" id="val-playscroll"></span>
+              <h3>Test play</h3>
+              <label>Note skin
+                <select id="pref-skin">
+                  <option value="bar">Bars</option>
+                  <option value="circle">Circles</option>
+                  <option value="diamond">Diamonds</option>
+                  <option value="arrow">Arrows</option>
+                </select>
+              </label>
+              <p class="def">Skin only applies in test play — the editor always shows bars.</p>
+              <label>Scroll speed <span class="val" id="val-playscroll"></span>
                 <input id="pref-playscroll" type="range" min="0.3" max="1.6" step="0.05" />
               </label>
             </div>
@@ -257,22 +296,27 @@
               <ul class="help">
                 <li><b>Click</b> a lane to place / remove a note</li>
                 <li><b>Click + drag</b> vertically to draw a hold note</li>
-                <li><b>Drag a hold's end</b> to scale its length</li>
-                <li><b>Grab the middle</b> of a note to move it</li>
-                <li><b>Shift + drag</b> on empty space to box-select</li>
-                <li><b>M</b> mirror · <b>Delete</b> remove · <b>Ctrl+C/V</b> copy/paste</li>
+                <li><b>Drag a hold's end</b> to scale it · <b>middle</b> to move</li>
+                <li><b>1–9</b> place a note in that column at the playhead</li>
+              </ul>
+              <h3>Selecting</h3>
+              <ul class="help">
+                <li><b>Shift + drag</b> box-select (hold <b>Ctrl</b> to add)</li>
+                <li><b>Ctrl + click</b> a note to add / remove it</li>
+                <li><b>Ctrl+A</b> select all · <b>M</b> mirror · <b>Delete</b> remove</li>
+                <li><b>Ctrl+C / V</b> copy / paste · <b>Ctrl+D</b> duplicate</li>
+                <li><b>Alt + arrows</b> nudge selection (time / column)</li>
               </ul>
               <h3>Navigation</h3>
               <ul class="help">
-                <li><b>Space</b> play / pause</li>
+                <li><b>Space</b> play / pause · <b>Home / End</b> jump to start / end</li>
                 <li><b>↑ / ↓</b> or <b>scroll</b> move by one snap</li>
-                <li><b>Ctrl+Z / Ctrl+Y</b> undo / redo</li>
-                <li><b>Ctrl+S</b> save the mapset (.osz)</li>
-                <li><b>1–9</b> place a note in that column at the playhead</li>
+                <li><b>Ctrl+Z / Ctrl+Y</b> undo / redo · <b>Ctrl+S</b> save (.osz)</li>
+                <li>Drag the bottom timeline to scrub</li>
               </ul>
               <h3>Test play</h3>
               <ul class="help">
-                <li><b>▶ Test</b> launches immersive play from the playhead</li>
+                <li><b>Test</b> launches immersive play from the playhead</li>
                 <li>Default keys auto-map per column (e.g. 4K = D F J K)</li>
                 <li><b>P</b> pause · <b>R</b> retry · <b>Esc</b> back to the editor</li>
               </ul>
@@ -301,6 +345,7 @@
 
     <input id="file-input" type="file" accept=".osu,.osz,audio/*,.mp3,.ogg,.wav" hidden />
     <input id="bg-input" type="file" accept="image/*,.jpg,.jpeg,.png" hidden />
+    <input id="vid-input" type="file" accept="video/*,.mp4,.webm,.mov" hidden />
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

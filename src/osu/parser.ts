@@ -75,6 +75,12 @@ export function parseBeatmap(text: string): Beatmap {
         break;
       }
       case "Events": {
+        // Video event: Video,0,"bg.mp4"  or  1,0,"bg.mp4"
+        const vid = line.match(/^(?:Video|1)\s*,\s*-?\d+\s*,\s*"?([^",]+)"?/i);
+        if (vid && !map.general.videoFilename) {
+          map.general.videoFilename = vid[1].trim();
+          break;
+        }
         // Background event: 0,0,"bg.jpg",0,0  (or unquoted filename).
         const bg = line.match(/^0\s*,\s*0\s*,\s*"?([^",]+)"?/);
         if (bg && !map.general.backgroundFilename) {

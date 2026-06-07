@@ -147,14 +147,18 @@ const COLUMN_COLORS = [
  * Draw an image covering the whole (W×H) area, centre-cropped (CSS
  * background-size: cover). No-op if the image hasn't loaded yet.
  */
+export type CoverMedia = HTMLImageElement | HTMLVideoElement;
+
 export function drawCover(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  img: CoverMedia,
   W: number,
   H: number,
 ): void {
-  if (!img.width || !img.height) return;
-  const ir = img.width / img.height;
+  const iw = img instanceof HTMLVideoElement ? img.videoWidth : img.width;
+  const ih = img instanceof HTMLVideoElement ? img.videoHeight : img.height;
+  if (!iw || !ih) return;
+  const ir = iw / ih;
   const cr = W / H;
   let dw: number;
   let dh: number;

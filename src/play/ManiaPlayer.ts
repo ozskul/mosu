@@ -11,7 +11,7 @@
 import { isHold, type Beatmap, type HitObject } from "../types.ts";
 import type { AudioEngine } from "../audio/AudioEngine.ts";
 import type { Settings } from "../state/settings.ts";
-import { drawNoteShape, columnColor, roundRect, drawCover, arrowAngle } from "../render/shapes.ts";
+import { drawNoteShape, columnColor, roundRect, drawCover, arrowAngle, type CoverMedia } from "../render/shapes.ts";
 import {
   accuracy,
   codeToLabel,
@@ -91,7 +91,7 @@ export class ManiaPlayer {
     private settings: Settings,
     private onExit: () => void,
     fromMs = 0,
-    private background: HTMLImageElement | null = null,
+    private background: CoverMedia | null = null,
   ) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D not supported");
@@ -323,7 +323,7 @@ export class ManiaPlayer {
     bg.addColorStop(1, "#05060a");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
-    if (this.background && this.background.width) {
+    if (this.background) {
       drawCover(ctx, this.background, W, H);
       ctx.fillStyle = "rgba(5,6,10,0.66)";
       ctx.fillRect(0, 0, W, H);

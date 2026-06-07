@@ -65,6 +65,8 @@ export interface OszContents {
   audioBytes: Uint8Array | null;
   backgroundFilename: string | null;
   backgroundBytes: Uint8Array | null;
+  videoFilename: string | null;
+  videoBytes: Uint8Array | null;
 }
 
 /** Read an .osz archive, returning every difficulty and the shared audio. */
@@ -118,7 +120,29 @@ export function readOsz(data: Uint8Array): OszContents {
     }
   }
 
-  return { beatmaps, audioFilename, audioBytes, backgroundFilename, backgroundBytes };
+  // Background video.
+  let videoFilename: string | null = null;
+  let videoBytes: Uint8Array | null = null;
+  const vidWanted = beatmaps[0].general.videoFilename?.toLowerCase();
+  for (const name of Object.keys(entries)) {
+    if (vidWanted && name.toLowerCase() === vidWanted) {
+      videoFilename = name;
+      videoBytes = entries[name];
+      break;
+    }
+  }
+  if (!videoBytes) {
+    const vName = Object.keys(entries).find((n) => /\.(mp4|webm|avi|flv|mov|m4v)$/i.test(n));
+    if (vName) {
+      videoFilename = vName;
+      videoBytes = entries[vName];
+    }
+  }
+
+  return {
+    beatmaps, audioFilename, audioBytes,
+    backgroundFilename, backgroundBytes, videoFilename, videoBytes,
+  };
 }
 
 function sanitize(name: string): string {
