@@ -260,6 +260,15 @@ export class EditorStore {
     });
   }
 
+  /** Replace all notes (e.g. from the auto-generator). Undoable. */
+  replaceNotes(objects: HitObject[]): void {
+    this.mutate(() => {
+      this._beatmap.hitObjects = objects.map((o) => ({ ...o, id: allocId() }));
+      this._beatmap.hitObjects.sort((a, b) => a.time - b.time || a.column - b.column);
+      this._selection.clear();
+    });
+  }
+
   removeById(id: number): void {
     this.mutate(() => {
       this._beatmap.hitObjects = this._beatmap.hitObjects.filter(

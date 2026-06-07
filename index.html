@@ -72,6 +72,7 @@
             <button data-tab="meta" class="active">Song</button>
             <button data-tab="timing">Timing</button>
             <button data-tab="diff">Setup</button>
+            <button data-tab="auto">Auto</button>
             <button data-tab="prefs">Style</button>
             <button data-tab="help">Help</button>
           </nav>
@@ -159,6 +160,31 @@
               <p class="muted">Notes: <span id="stat-notes">0</span> ·
                  Length: <span id="stat-length">0:00</span></p>
               <button id="btn-clear" class="danger full">Clear all notes</button>
+            </div>
+
+            <!-- Auto map generator -->
+            <div class="tab" data-tab="auto" hidden>
+              <h3>Auto-map generator</h3>
+              <p class="muted">Builds a chart from the song's beats. Needs audio loaded — it auto-detects the beats &amp; BPM if needed.</p>
+              <label>Difficulty
+                <select id="gen-diff">
+                  <option value="easy">Easy</option>
+                  <option value="normal">Normal</option>
+                  <option value="hard" selected>Hard</option>
+                  <option value="insane">Insane</option>
+                  <option value="expert">Expert</option>
+                </select>
+              </label>
+              <label>Density <span class="val" id="gen-density-val"></span>
+                <input id="gen-density" type="range" min="0.5" max="1.4" step="0.05" value="1" />
+              </label>
+              <label class="checkbox"><input id="gen-ln" type="checkbox" checked /> Include long notes</label>
+              <button id="btn-generate" class="full accent">✨ Generate into this difficulty</button>
+              <button id="btn-generate-new" class="full">Generate as a new difficulty</button>
+              <hr />
+              <button id="btn-generate-spread" class="full">🎚 Generate full spread (Easy → Insane)</button>
+              <p class="muted">Tip: re-run to re-roll the patterns. Generation is one undo step.</p>
+              <p id="gen-status" class="muted" hidden></p>
             </div>
 
             <!-- Style / preferences -->
