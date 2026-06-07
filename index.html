@@ -87,9 +87,14 @@
               <label>Audio offset (ms)
                 <input id="meta-leadin" type="number" step="1" />
               </label>
-              <label>Preview point (ms, -1 = none)
+              <label>Preview point — where song-select previews the track
                 <input id="meta-preview" type="number" step="1" />
               </label>
+              <div class="field-row">
+                <button id="btn-preview-set" class="full" title="Set the preview point to the current playhead position">⤓ Set to playhead</button>
+                <button id="btn-preview-jump" title="Jump the playhead to the preview point">Jump</button>
+                <button id="btn-preview-clear" title="Clear the preview point (-1)">Clear</button>
+              </div>
             </div>
 
             <!-- Timing -->
