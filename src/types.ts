@@ -14,6 +14,11 @@ export interface GeneralInfo {
   audioLeadIn: number;
   /** Time (ms) of the audio preview point, or -1 for none. */
   previewTime: number;
+  /**
+   * Background image filename (also serves as the set's cover/thumbnail in
+   * osu!). Stored in [Events] as a background event. Optional.
+   */
+  backgroundFilename?: string;
 }
 
 export interface Metadata {

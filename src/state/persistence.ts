@@ -10,6 +10,7 @@ const DOC_KEY = "mosu.document.v1";
 const DB_NAME = "mosu";
 const STORE = "audio";
 const AUDIO_KEY = "current";
+const BG_KEY = "background";
 
 export interface PersistedDoc {
   /** All difficulties in the set. */
@@ -87,28 +88,28 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveAudio(bytes: Uint8Array): Promise<void> {
+async function putBlob(key: string, bytes: Uint8Array): Promise<void> {
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
       // Store a fresh copy so the buffer isn't detached elsewhere.
-      tx.objectStore(STORE).put(bytes.slice(), AUDIO_KEY);
+      tx.objectStore(STORE).put(bytes.slice(), key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
     db.close();
   } catch {
-    /* IndexedDB unavailable; audio just won't persist */
+    /* IndexedDB unavailable; just won't persist */
   }
 }
 
-export async function loadAudio(): Promise<Uint8Array | null> {
+async function getBlob(key: string): Promise<Uint8Array | null> {
   try {
     const db = await openDb();
     const result = await new Promise<Uint8Array | null>((resolve, reject) => {
       const tx = db.transaction(STORE, "readonly");
-      const req = tx.objectStore(STORE).get(AUDIO_KEY);
+      const req = tx.objectStore(STORE).get(key);
       req.onsuccess = () => resolve((req.result as Uint8Array) ?? null);
       req.onerror = () => reject(req.error);
     });
@@ -119,12 +120,17 @@ export async function loadAudio(): Promise<Uint8Array | null> {
   }
 }
 
-export async function clearAudio(): Promise<void> {
+export const saveAudio = (bytes: Uint8Array) => putBlob(AUDIO_KEY, bytes);
+export const loadAudio = () => getBlob(AUDIO_KEY);
+export const saveBackground = (bytes: Uint8Array) => putBlob(BG_KEY, bytes);
+export const loadBackground = () => getBlob(BG_KEY);
+
+async function deleteBlob(key: string): Promise<void> {
   try {
     const db = await openDb();
     await new Promise<void>((resolve) => {
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).delete(AUDIO_KEY);
+      tx.objectStore(STORE).delete(key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     });
@@ -133,3 +139,6 @@ export async function clearAudio(): Promise<void> {
     /* ignore */
   }
 }
+
+export const clearAudio = () => deleteBlob(AUDIO_KEY);
+export const clearBackground = () => deleteBlob(BG_KEY);

@@ -30,7 +30,11 @@ export function oszFileName(map: Beatmap): string {
  * multiple difficulties land as a single mapset in osu!. If two difficulties
  * share a Version name we de-duplicate the filename so neither is dropped.
  */
-export function buildOsz(maps: Beatmap[], audioBytes: Uint8Array | null): Blob {
+export function buildOsz(
+  maps: Beatmap[],
+  audioBytes: Uint8Array | null,
+  extraFiles: Record<string, Uint8Array> = {},
+): Blob {
   if (maps.length === 0) throw new Error("No difficulties to export.");
   const files: Record<string, Uint8Array> = {};
   const used = new Set<string>();
@@ -45,6 +49,10 @@ export function buildOsz(maps: Beatmap[], audioBytes: Uint8Array | null): Blob {
   if (audioBytes && audioBytes.length > 0) {
     files[maps[0].general.audioFilename] = audioBytes;
   }
+  // Background image and any other shared assets.
+  for (const [name, bytes] of Object.entries(extraFiles)) {
+    if (name && bytes && bytes.length > 0) files[name] = bytes;
+  }
   const zipped = zipSync(files, { level: 6 });
   // Copy into a fresh ArrayBuffer so Blob doesn't alias the underlying buffer.
   return new Blob([zipped.slice()], { type: "application/x-osu-archive" });
@@ -55,6 +63,8 @@ export interface OszContents {
   beatmaps: Beatmap[];
   audioFilename: string | null;
   audioBytes: Uint8Array | null;
+  backgroundFilename: string | null;
+  backgroundBytes: Uint8Array | null;
 }
 
 /** Read an .osz archive, returning every difficulty and the shared audio. */
@@ -89,7 +99,26 @@ export function readOsz(data: Uint8Array): OszContents {
     }
   }
 
-  return { beatmaps, audioFilename, audioBytes };
+  // Background image (named by the first difficulty, else any image file).
+  let backgroundFilename: string | null = null;
+  let backgroundBytes: Uint8Array | null = null;
+  const bgWanted = beatmaps[0].general.backgroundFilename?.toLowerCase();
+  for (const name of Object.keys(entries)) {
+    if (bgWanted && name.toLowerCase() === bgWanted) {
+      backgroundFilename = name;
+      backgroundBytes = entries[name];
+      break;
+    }
+  }
+  if (!backgroundBytes) {
+    const imgName = Object.keys(entries).find((n) => /\.(jpe?g|png)$/i.test(n));
+    if (imgName) {
+      backgroundFilename = imgName;
+      backgroundBytes = entries[imgName];
+    }
+  }
+
+  return { beatmaps, audioFilename, audioBytes, backgroundFilename, backgroundBytes };
 }
 
 function sanitize(name: string): string {

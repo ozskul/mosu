@@ -85,6 +85,12 @@
               <label>Difficulty name<input id="meta-version" /></label>
               <label>Source<input id="meta-source" /></label>
               <label>Tags<input id="meta-tags" /></label>
+              <label>Background / cover image</label>
+              <img id="bg-thumb" class="bg-thumb" alt="background preview" hidden />
+              <div class="field-row">
+                <button id="btn-bg-pick" class="full" title="Choose a background image (JPG/PNG). It's the map's cover in osu! too.">🖼 Choose image</button>
+                <button id="btn-bg-remove" class="danger" title="Remove background" hidden>Remove</button>
+              </div>
               <label>Audio offset (ms)
                 <input id="meta-leadin" type="number" step="1" />
               </label>
@@ -231,6 +237,7 @@
     </div>
 
     <input id="file-input" type="file" accept=".osu,.osz,audio/*,.mp3,.ogg,.wav" hidden />
+    <input id="bg-input" type="file" accept="image/*,.jpg,.jpeg,.png" hidden />
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
