@@ -9,12 +9,16 @@
 import { isHold, type Beatmap, type HitObject } from "../types.ts";
 import { gridLines } from "../timing/timing.ts";
 import type { Viewport } from "./Viewport.ts";
+import type { NoteSkin } from "../state/settings.ts";
+import { drawNoteShape, columnColor, roundRect } from "./shapes.ts";
 
 export interface RenderInput {
   beatmap: Beatmap;
   selection: ReadonlySet<number>;
   currentTime: number;
   divisor: number;
+  /** Shape used to draw notes. */
+  skin: NoteSkin;
   /** Optional in-progress hold being dragged: column + start/end times. */
   pendingHold?: { column: number; startTime: number; endTime: number } | null;
   /** Optional column index currently hovered (for highlight). */
@@ -34,8 +38,6 @@ const DIVISOR_COLORS: Record<number, string> = {
   12: "#9b59b6",
   16: "#e67e22",
 };
-
-const NOTE_COLORS = ["#42a5f5", "#ef5350", "#42a5f5", "#ef5350", "#66bb6a", "#ffca28", "#ab47bc", "#26c6da", "#ff7043", "#8d6e63"];
 
 export class PlayfieldRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -164,9 +166,9 @@ export class PlayfieldRenderer {
     ghost = false,
   ): void {
     const ctx = this.ctx;
-    const x = o.column * lw;
+    const cx = o.column * lw + lw / 2;
     const yHead = vp.timeToY(o.time, input.currentTime);
-    const color = NOTE_COLORS[o.column % NOTE_COLORS.length];
+    const color = columnColor(o.column, input.beatmap.difficulty.keyCount);
     const selected = o.id !== undefined && input.selection.has(o.id);
 
     if (isHold(o)) {
@@ -175,61 +177,37 @@ export class PlayfieldRenderer {
       const bottom = Math.max(yHead, yTail);
       if (bottom < 0 || top > H) return;
       // Hold body.
+      ctx.save();
       ctx.fillStyle = ghost ? color : shade(color, -0.25);
-      ctx.globalAlpha = ghost ? ctx.globalAlpha : 0.75;
-      ctx.fillRect(x + lw * 0.18, top, lw * 0.64, bottom - top);
-      ctx.globalAlpha = ghost ? ctx.globalAlpha : 1;
+      ctx.globalAlpha = ghost ? 0.5 : 0.7;
+      roundRect(ctx, cx - lw * 0.32, top, lw * 0.64, bottom - top, 5);
+      ctx.fill();
+      ctx.restore();
       // Head + tail caps.
-      this.cap(x, yHead, lw, noteH, color, selected);
-      this.cap(x, yTail, lw, noteH, color, selected);
+      this.cap(cx, yHead, lw, noteH, color, selected, input.skin);
+      this.cap(cx, yTail, lw, noteH, color, selected, input.skin);
     } else {
       if (yHead < -noteH || yHead > H + noteH) return;
-      this.cap(x, yHead, lw, noteH, color, selected);
+      this.cap(cx, yHead, lw, noteH, color, selected, input.skin);
     }
   }
 
   private cap(
-    x: number,
+    cx: number,
     y: number,
     lw: number,
     noteH: number,
     color: string,
     selected: boolean,
+    skin: NoteSkin,
   ): void {
-    const ctx = this.ctx;
-    const pad = lw * 0.12;
-    ctx.fillStyle = color;
-    roundRect(ctx, x + pad, y - noteH / 2, lw - pad * 2, noteH, 4);
-    ctx.fill();
-    if (selected) {
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
-      roundRect(ctx, x + pad, y - noteH / 2, lw - pad * 2, noteH, 4);
-      ctx.stroke();
-    } else {
-      ctx.strokeStyle = "rgba(0,0,0,0.35)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
+    drawNoteShape(this.ctx, skin, cx, y, lw * 0.76, noteH, {
+      fill: color,
+      stroke: selected ? "#ffffff" : "rgba(0,0,0,0.35)",
+      strokeWidth: selected ? 2.5 : 1,
+      glow: selected ? 8 : 0,
+    });
   }
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
 }
 
 function shade(hex: string, amt: number): string {

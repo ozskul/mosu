@@ -38,6 +38,16 @@ export class AudioEngine {
     return this.buffer !== null;
   }
 
+  /** The decoded audio buffer, or null if nothing is loaded. */
+  get audioBuffer(): AudioBuffer | null {
+    return this.buffer;
+  }
+
+  /** The underlying AudioContext (shared for click/hitsound synthesis). */
+  get context(): AudioContext {
+    return this.ctx;
+  }
+
   get isPlaying(): boolean {
     return this.playing;
   }
@@ -163,6 +173,57 @@ export class AudioEngine {
       max[b] = hi;
     }
     return { min, max };
+  }
+
+  /**
+   * Play a short metronome click through the shared context. Reusing the main
+   * context avoids the per-tick AudioContext churn that browsers throttle.
+   */
+  playClick(accent: boolean, volume: number): void {
+    if (volume <= 0) return;
+    const ac = this.ctx;
+    if (ac.state === "suspended") void ac.resume();
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.frequency.value = accent ? 1600 : 1050;
+    g.gain.setValueAtTime(Math.min(1, volume) * 0.4, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.05);
+    osc.connect(g);
+    g.connect(ac.destination);
+    osc.start();
+    osc.stop(ac.currentTime + 0.06);
+  }
+
+  /**
+   * Play a soft percussive hitsound (filtered noise burst) through the shared
+   * context. Used by test play for note feedback.
+   */
+  playHit(volume: number): void {
+    if (volume <= 0) return;
+    const ac = this.ctx;
+    if (ac.state === "suspended") void ac.resume();
+    const dur = 0.06;
+    const frames = Math.floor(ac.sampleRate * dur);
+    const noise = ac.createBuffer(1, frames, ac.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < frames; i++) {
+      // Decaying white noise for a clicky tick.
+      data[i] = (Math.random() * 2 - 1) * (1 - i / frames);
+    }
+    const src = ac.createBufferSource();
+    src.buffer = noise;
+    const bp = ac.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 2200;
+    bp.Q.value = 0.8;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(Math.min(1, volume) * 0.5, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(ac.destination);
+    src.start();
+    src.stop(ac.currentTime + dur);
   }
 
   onEnded(fn: AudioEngineListener): () => void {
