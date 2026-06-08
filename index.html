@@ -229,6 +229,19 @@
               </label>
               <p class="def">Overall hardness — sets the base note spacing, chord rate and OD.</p>
 
+              <label>Pattern style
+                <select id="gen-style">
+                  <option value="auto" selected>Auto (follow the song)</option>
+                  <option value="stream">Streams</option>
+                  <option value="jumpstream">Jumpstream</option>
+                  <option value="chordjack">Chords / jacks</option>
+                  <option value="staircase">Staircases</option>
+                  <option value="longnote">Long notes</option>
+                  <option value="lnchain">LN chains (short holds)</option>
+                </select>
+              </label>
+              <p class="def"><b>Auto</b> picks a style per section from how it sounds — calm → long notes, busy → streams/staircases, drops → chords, expert drops → chained short LNs. Or force one style.</p>
+
               <label>Density <span class="val" id="gen-density-val"></span>
                 <input id="gen-density" type="range" min="0.5" max="1.4" step="0.05" value="1" />
               </label>
@@ -236,9 +249,9 @@
 
               <label class="checkbox"><input id="gen-ln" type="checkbox" checked /> Include long notes</label>
               <label>Hold-note amount <span class="val" id="gen-ln-amt-val"></span>
-                <input id="gen-ln-amt" type="range" min="0" max="2" step="0.1" value="1" />
+                <input id="gen-ln-amt" type="range" min="0" max="2" step="0.1" value="1.3" />
               </label>
-              <p class="def">How often gaps become held (long) notes.</p>
+              <p class="def">How heavily the chart uses hold notes. Higher also pushes Auto toward long-note &amp; LN-chain sections.</p>
 
               <label>Chords / jumps <span class="val" id="gen-chord-val"></span>
                 <input id="gen-chord" type="range" min="0" max="2" step="0.1" value="1" />

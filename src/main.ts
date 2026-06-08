@@ -55,6 +55,7 @@ import {
   OD_BY_LEVEL,
   HP_BY_LEVEL,
   type DifficultyLevel,
+  type ChartStyle,
 } from "./generate/autochart.ts";
 
 // ---------------------------------------------------------------------------
@@ -1357,6 +1358,7 @@ alignBtn.addEventListener("click", async () => {
 // Auto-map generator
 // ---------------------------------------------------------------------------
 const genDiffSel = $("#gen-diff") as HTMLSelectElement;
+const genStyle = $("#gen-style") as HTMLSelectElement;
 const genDensity = $("#gen-density") as HTMLInputElement;
 const genDensityVal = $("#gen-density-val");
 const genLn = $("#gen-ln") as HTMLInputElement;
@@ -1427,6 +1429,7 @@ function makeNotes(level: DifficultyLevel) {
     longNotes: genLn.checked,
     lnAmount: Number(genLnAmt.value),
     chordAmount: Number(genChord.value),
+    style: genStyle.value as ChartStyle,
     intensityAt: follow ? (ms) => intensityAt(intensityEnv!, ms) : undefined,
     intensityStrength: Number(genIntensity.value),
     seed: (Math.random() * 0xffffffff) >>> 0,

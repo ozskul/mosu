@@ -2,10 +2,29 @@ import { describe, it, expect } from "vitest";
 import {
   generateChart,
   recommendedOD,
+  pickAutoStyle,
+  clampStyleToLevel,
   type DifficultyLevel,
 } from "../src/generate/autochart.ts";
 import { arrowAngle } from "../src/render/shapes.ts";
-import { isHold, type TimingPoint } from "../src/types.ts";
+import { isHold, type HitObject, type TimingPoint } from "../src/types.ts";
+
+function holdFraction(notes: HitObject[]): number {
+  return notes.length === 0 ? 0 : notes.filter(isHold).length / notes.length;
+}
+/** True if no two objects overlap within any single column. */
+function noColumnOverlap(notes: HitObject[]): boolean {
+  const byCol = new Map<number, HitObject[]>();
+  for (const o of notes) (byCol.get(o.column) ?? byCol.set(o.column, []).get(o.column)!).push(o);
+  for (const list of byCol.values()) {
+    list.sort((a, b) => a.time - b.time);
+    for (let i = 1; i < list.length; i++) {
+      const prevEnd = list[i - 1].endTime ?? list[i - 1].time;
+      if (prevEnd > list[i].time) return false;
+    }
+  }
+  return true;
+}
 
 function red(bpm = 120): TimingPoint[] {
   return [{ time: 0, uninherited: true, bpm, sv: 1, meter: 4, volume: 100, sampleSet: 0, sampleIndex: 0, effects: 0 }];
@@ -111,6 +130,67 @@ describe("generateChart", () => {
     const notes = gen("hard");
     expect(notes.length).toBeGreaterThan(0);
     expect(notes.every((o) => o.time % 125 === 0)).toBe(true);
+  });
+});
+
+describe("pattern styles", () => {
+  it("longnote style holds most notes (lots of LNs)", () => {
+    const notes = generateChart(onsets, tp, {
+      keyCount: 4, level: "insane", style: "longnote", lnAmount: 2, seed: 5,
+    });
+    expect(notes.length).toBeGreaterThan(10);
+    expect(holdFraction(notes)).toBeGreaterThan(0.5);
+  });
+
+  it("lnchain style produces shorter holds than longnote", () => {
+    const opts = { keyCount: 4, level: "expert" as const, lnAmount: 2, seed: 9 };
+    const longn = generateChart(onsets, tp, { ...opts, style: "longnote" }).filter(isHold);
+    const chain = generateChart(onsets, tp, { ...opts, style: "lnchain" }).filter(isHold);
+    const avg = (a: HitObject[]) => a.reduce((s, o) => s + (o.endTime! - o.time), 0) / Math.max(1, a.length);
+    expect(chain.length).toBeGreaterThan(0);
+    expect(avg(chain)).toBeLessThan(avg(longn));
+  });
+
+  it("more hold-note amount yields more holds", () => {
+    const few = generateChart(onsets, tp, { keyCount: 4, level: "hard", lnAmount: 0, seed: 2, intensityAt: () => 0.5 });
+    const many = generateChart(onsets, tp, { keyCount: 4, level: "hard", lnAmount: 2, seed: 2, intensityAt: () => 0.5 });
+    expect(few.filter(isHold).length).toBe(0);
+    expect(many.filter(isHold).length).toBeGreaterThan(0);
+  });
+
+  it("staircase style steps one column at a time", () => {
+    const notes = generateChart(onsets, tp, { keyCount: 4, level: "insane", style: "staircase", seed: 1, longNotes: false });
+    // Single notes only; consecutive columns differ by exactly 1.
+    const times = new Set(notes.map((o) => o.time));
+    expect(times.size).toBe(notes.length); // no chords
+    const cols = notes.map((o) => o.column);
+    for (let i = 1; i < cols.length; i++) expect(Math.abs(cols[i] - cols[i - 1])).toBe(1);
+  });
+
+  it("never overlaps objects within a column, for any style", () => {
+    for (const style of ["stream", "jumpstream", "chordjack", "staircase", "longnote", "lnchain"] as const) {
+      const notes = generateChart(onsets, tp, { keyCount: 7, level: "expert", style, lnAmount: 2, seed: 4 });
+      expect(noColumnOverlap(notes), `overlap in style ${style}`).toBe(true);
+    }
+  });
+});
+
+describe("auto style selection", () => {
+  it("picks calm vs loud styles by intensity", () => {
+    expect(pickAutoStyle(0.1, "insane", 1, 0)).toBe("longnote");
+    expect(pickAutoStyle(0.5, "insane", 1, 1)).toBe("jumpstream");
+    expect(pickAutoStyle(0.95, "insane", 1, 1)).toBe("chordjack");
+  });
+
+  it("expert drops can become LN chains", () => {
+    expect(pickAutoStyle(0.9, "expert", 1, 0)).toBe("lnchain");
+  });
+
+  it("clamps styles a difficulty can't do", () => {
+    expect(clampStyleToLevel("chordjack", "easy")).toBe("stream");
+    expect(clampStyleToLevel("lnchain", "hard")).toBe("chordjack");
+    expect(clampStyleToLevel("staircase", "easy")).toBe("stream");
+    expect(clampStyleToLevel("longnote", "easy")).toBe("longnote");
   });
 });
 
